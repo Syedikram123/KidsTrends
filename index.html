@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Kid's Trends POS</title>
+    <!-- PWA Settings -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    
+    <!-- Local Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Top Action Header -->
+    <header>
+        <div class="header-brand">
+            <h1 class="header-title">KID'S TRENDS</h1>
+            <span class="header-sub">Kids Wear Collection | Bidar</span>
+        </div>
+        <div class="header-status">
+            <span id="connection-status" class="status-badge online">Online</span>
+            <button id="theme-toggle" class="theme-toggle-btn" onclick="toggleAppTheme()" aria-label="Toggle Theme">🌓</button>
+        </div>
+    </header>
+
+    <!-- TOAST NOTIFICATION CONTAINER -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- MAIN SECTIONS -->
+    <main>
+
+        <!-- 🏠 HOME SECTION -->
+        <section id="home-section" class="view-section active">
+            <!-- Metrics Grid -->
+            <div class="dashboard-grid">
+                <div class="metric-card revenue">
+                    <span class="metric-title">Today's Revenue</span>
+                    <span id="stat-revenue" class="metric-value">₹0.00</span>
+                </div>
+                <div class="metric-card bills">
+                    <span class="metric-title">Today's Bills</span>
+                    <span id="stat-bills" class="metric-value">0</span>
+                </div>
+                <div class="metric-card items">
+                    <span class="metric-title">Items Sold</span>
+                    <span id="stat-items" class="metric-value">0</span>
+                </div>
+            </div>
+
+            <!-- Quick Actions Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Quick Actions</h2>
+                </div>
+                <div class="panel-body">
+                    <div class="quick-actions-flex">
+                        <button class="btn-quick" onclick="switchSection('bill')">
+                            <span class="icon">🧾</span>
+                            <span>New Bill</span>
+                        </button>
+                        <button class="btn-quick" onclick="state.adminUnlocked = true; state.adminTab = 'inventory'; switchSection('admin');">
+                            <span class="icon">📦</span>
+                            <span>Inventory</span>
+                        </button>
+                        <button class="btn-quick" onclick="state.adminUnlocked = true; state.adminTab = 'analytics'; switchSection('admin');">
+                            <span class="icon">📊</span>
+                            <span>Reports</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Bills Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2 class="panel-title">Recent Transactions</h2>
+                </div>
+                <div class="transaction-list" id="recent-transactions-list">
+                    <!-- Recent bills render dynamically here -->
+                    <div class="no-recent">Loading recent transactions...</div>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- 🧾 BILLING SECTION (DEDICATED BILLING SCREEN) -->
+        <section id="bill-section" class="view-section">
+            <div class="billing-layout">
+                
+                <!-- CART COMPACT TABLE (TAKES AT LEAST 80% AREA OF FLOW) -->
+                <div class="cart-panel">
+                    <div class="cart-table-wrapper">
+                        <table class="cart-table">
+                            <thead>
+                                <tr>
+                                    <th class="text-left">Product</th>
+                                    <th class="text-right">Price</th>
+                                    <th class="text-center">Qty</th>
+                                    <th class="text-right">Total</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="cart-tbody">
+                                <!-- Cart items injected dynamically -->
+                                <tr>
+                                    <td colspan="5" class="empty-cart-row">
+                                        <div class="empty-cart-message">🛒 Cart is empty. Search products below or scan code.</div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- TOTAL DISPLAY PANEL -->
+                    <div class="checkout-summary">
+                        <div class="summary-row">
+                            <span>Total Items:</span>
+                            <span id="summary-items" class="font-medium">0</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Subtotal:</span>
+                            <span id="summary-subtotal">₹0.00</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Discount Applied:</span>
+                            <span id="summary-discount" style="color: var(--danger);">₹0.00</span>
+                        </div>
+                        <!-- GST displays conditionally -->
+                        <div class="summary-row" id="summary-gst-row" style="display: none;">
+                            <span id="summary-gst-label">GST (0%):</span>
+                            <span id="summary-gst">₹0.00</span>
+                        </div>
+                        <div class="summary-row total-row">
+                            <span>Grand Total:</span>
+                            <span id="summary-total">₹0.00</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLS DOCK (BOTTOM AREA) -->
+                <div class="billing-dock">
+                    
+                    <!-- Search Input & Scanner button -->
+                    <div class="search-container">
+                        <div class="search-input-wrapper">
+                            <input type="text" id="billing-search" class="input-styled" placeholder="Search product name or code (e.g. 101, T-Shirt)..." autocomplete="off">
+                            <!-- Float Suggestion Box -->
+                            <div class="suggestions-box" id="search-suggestions"></div>
+                        </div>
+                        <button type="button" id="btn-scan-product" class="btn-scan">
+                            <span>📷</span> Scan
+                        </button>
+                    </div>
+
+                    <!-- Discount & GST manual entries -->
+                    <div class="tax-discount-grid">
+                        <div class="discount-input-group">
+                            <select id="billing-discount-type" class="discount-select">
+                                <option value="percentage">% Disc</option>
+                                <option value="fixed">₹ Disc</option>
+                            </select>
+                            <input type="number" id="billing-discount-value" class="discount-val-input" min="0" value="0" placeholder="0">
+                        </div>
+                        
+                        <div class="gst-input-group">
+                            <span class="gst-label">GST %</span>
+                            <input type="number" id="billing-gst-percent" class="gst-input" min="0" value="0" placeholder="0">
+                        </div>
+                    </div>
+
+                    <!-- Checkout button -->
+                    <button type="button" id="btn-checkout" class="btn-primary" disabled>Proceed Checkout</button>
+                </div>
+
+            </div>
+        </section>
+
+
+        <!-- ⚙ ADMIN & SETTINGS SECTION -->
+        <section id="admin-section" class="view-section">
+            
+            <!-- ADMIN LOCK SCREEN -->
+            <div id="admin-login" class="admin-login-layout">
+                <div class="login-card">
+                    <div class="login-icon">🔒</div>
+                    <h2 class="login-title">Admin Access Protected</h2>
+                    <p class="login-subtitle">Please enter your administrative password</p>
+                    
+                    <form id="admin-login-form" class="form-grid" style="margin-top: 16px;">
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <input type="password" id="admin-password-input" class="input-styled text-center" style="font-size: 1.25rem; letter-spacing: 2px;" placeholder="••••••••" required autocomplete="current-password">
+                        </div>
+                        <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK SYSTEM</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- ADMIN CONTROL PANEL (UNLOCKED) -->
+            <div id="admin-content" style="display: none;">
+                
+                <!-- Admin Lock Header -->
+                <div class="admin-header-bar">
+                    <h2 class="admin-sec-title">Admin Dashboard</h2>
+                    <button class="btn-secondary" id="btn-lock-admin">Lock Session 🔒</button>
+                </div>
+
+                <!-- Admin Sub Tabs Nav -->
+                <nav class="admin-tab-nav">
+                    <button class="admin-tab-btn active" data-tab="analytics">Analytics</button>
+                    <button class="admin-tab-btn" data-tab="inventory">Inventory</button>
+                    <button class="admin-tab-btn" data-tab="bills">Sales History</button>
+                    <button class="admin-tab-btn" data-tab="settings">Backup &amp; Settings</button>
+                </nav>
+
+                <!-- TAB CONTENT: ANALYTICS -->
+                <div id="admin-tab-analytics" class="admin-tab-content active">
+                    <!-- Filters -->
+                    <div class="analytics-filter-bar">
+                        <button class="filter-btn active" data-range="today">Today</button>
+                        <button class="filter-btn" data-range="yesterday">Yesterday</button>
+                        <button class="filter-btn" data-range="7days">Last 7 Days</button>
+                        <button class="filter-btn" data-range="30days">Last 30 Days</button>
+                        <button class="filter-btn" data-range="custom">Custom Range</button>
+                    </div>
+
+                    <div class="custom-range-row" id="custom-date-fields" style="display: none;">
+                        <input type="date" id="analytics-start-date">
+                        <input type="date" id="analytics-end-date">
+                    </div>
+
+                    <!-- Summary numbers -->
+                    <div class="analytics-summary-grid">
+                        <div class="analytics-card">
+                            <div id="report-revenue" class="analytics-val">₹0.00</div>
+                            <div class="analytics-lbl">Revenue</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div id="report-bills" class="analytics-val">0</div>
+                            <div class="analytics-lbl">Bills</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div id="report-items" class="analytics-val">0</div>
+                            <div class="analytics-lbl">Items Sold</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div id="report-aov" class="analytics-val">₹0.00</div>
+                            <div class="analytics-lbl">Avg Order</div>
+                        </div>
+                    </div>
+
+                    <!-- SVG Trend Chart -->
+                    <div class="chart-box">
+                        <h3 class="panel-title" style="margin-bottom: 8px;">Revenue Trend</h3>
+                        <div id="report-chart-container">
+                            <!-- SVG render area -->
+                        </div>
+                    </div>
+
+                    <!-- Top Selling Products list -->
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3 class="panel-title">Top Products Sold</h3>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th class="text-center" style="width: 50px;">Rank</th>
+                                        <th>Product</th>
+                                        <th class="text-center">Qty Sold</th>
+                                        <th class="text-right">Revenue</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="report-top-products">
+                                    <!-- Injected dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB CONTENT: INVENTORY -->
+                <div id="admin-tab-inventory" class="admin-tab-content">
+                    <div class="search-container" style="margin-bottom: 12px;">
+                        <input type="text" id="inventory-search" class="input-styled" placeholder="Search inventory code or name...">
+                        <button class="btn-primary" id="btn-add-product" style="width: auto; height: 48px; padding: 0 16px;">+ Add Product</button>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Code</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th class="text-right">Price</th>
+                                    <th class="text-center">Stock</th>
+                                    <th class="text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-tbody">
+                                <!-- Injected dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB CONTENT: BILLS LOG -->
+                <div id="admin-tab-bills" class="admin-tab-content">
+                    <div class="search-container" style="margin-bottom: 12px;">
+                        <input type="text" id="bills-search" class="input-styled" placeholder="Search bill numbers (e.g. KT00125)...">
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table class="admin-table">
+                            <thead>
+                                <tr>
+                                    <th>Bill No</th>
+                                    <th>Date &amp; Time</th>
+                                    <th class="text-center">Items</th>
+                                    <th class="text-right">Total</th>
+                                    <th class="text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bills-tbody">
+                                <!-- Injected dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB CONTENT: SETTINGS & BACKUPS -->
+                <div id="admin-tab-settings" class="admin-tab-content">
+                    
+                    <!-- Backup options -->
+                    <div class="settings-section-card">
+                        <h3 class="settings-sec-title">Local Database Backup</h3>
+                        <p class="text-muted text-sm" style="margin-bottom: 12px;">Export all data (Products, Bills, Settings, Logs) locally as a JSON backup file or restore from a previously exported backup.</p>
+                        <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <button class="btn-secondary" id="btn-export-backup" style="height: 44px;">📥 Export JSON Backup</button>
+                            <label class="btn-secondary text-center" style="display: flex; align-items: center; justify-content: center; height: 44px; cursor: pointer;">
+                                📤 Restore JSON
+                                <input type="file" id="backup-import-file" accept=".json" style="display: none;">
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Security Change Pin code -->
+                    <div class="settings-section-card">
+                        <h3 class="settings-sec-title">Change Administrative PIN</h3>
+                        <form id="pin-change-form" class="form-grid">
+                            <div class="form-group">
+                                <label for="pin-old">Old 4-8 Digit PIN</label>
+                                <input type="password" id="pin-old" class="input-styled" style="height: 40px;" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pin-new">New 4-8 Digit PIN</label>
+                                <input type="password" id="pin-new" class="input-styled" style="height: 40px;" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="pin-confirm">Confirm New PIN</label>
+                                <input type="password" id="pin-confirm" class="input-styled" style="height: 40px;" required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="height: 44px; padding: 0;">Update Security PIN</button>
+                        </form>
+                    </div>
+
+                    <!-- Factory Reset option -->
+                    <div class="settings-section-card" style="border-color: var(--danger);">
+                        <h3 class="settings-sec-title" style="color: var(--danger); border-bottom-color: rgba(239,68,68,0.15);">System Reset</h3>
+                        <p class="text-muted text-sm" style="margin-bottom: 12px;">This action is destructive and will completely delete the local IndexedDB database, products inventory, transactions, and audit logs.</p>
+                        <button class="btn-danger-outline" id="btn-factory-reset">PERFORM SYSTEM RESET</button>
+                    </div>
+
+                    <!-- Audit logs log tracker -->
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3 class="panel-title">System Audit Log (Last 25 Events)</h3>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="admin-table" style="font-size: 0.8rem;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 110px;">Timestamp</th>
+                                        <th>Action</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="audit-logs-tbody">
+                                    <!-- Injected dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FIXED BOTTOM NAV BAR -->
+    <nav class="bottom-nav">
+        <button id="nav-home" class="nav-item active">
+            <span class="nav-icon">🏠</span>
+            <span class="nav-label">Home</span>
+        </button>
+        <button id="nav-bill" class="nav-item">
+            <span class="nav-icon">🧾</span>
+            <span class="nav-label">Bill</span>
+        </button>
+        <button id="nav-admin" class="nav-item">
+            <span class="nav-icon">⚙</span>
+            <span class="nav-label">Admin</span>
+        </button>
+    </nav>
+
+    <!-- ==========================================
+       MODAL: CAMERA BARCODE SCANNER
+       ========================================== -->
+    <div id="scanner-modal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 class="modal-title">Scan Product Barcode</h3>
+                <button class="modal-close" id="btn-close-scanner">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="scanner-viewport">
+                    <video id="scanner-video"></video>
+                    <!-- Laser scanning guide bar -->
+                    <div class="scanner-laser-line"></div>
+                </div>
+                <div class="scanner-warning" id="scanner-support-warning">
+                    ⚠️ Native BarcodeDetector API is not supported in this browser environment. Camera scanner will not work. Please type codes manually.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeScannerOverlay()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: RECEIPT VISUAL PREVIEW & PRINT DOCK
+       ========================================== -->
+    <div id="receipt-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 380px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Receipt Review</h3>
+                <button class="modal-close" id="btn-close-receipt">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="receipt-preview" id="receipt-modal-body">
+                    <!-- Thermal print formatting goes here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeReceiptModal()">Close / New Bill</button>
+                <button class="btn-primary" id="btn-print-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">Print Receipt 🖨️</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: ADD & EDIT PRODUCT FORM
+       ========================================== -->
+    <div id="product-modal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 class="modal-title" id="product-modal-title">Add New Product</h3>
+                <button class="modal-close" id="btn-close-prod-modal">&times;</button>
+            </div>
+            <form id="product-form">
+                <div class="modal-body form-grid">
+                    <div class="form-group">
+                        <label for="prod-code">Product Code (Barcode / ID)</label>
+                        <input type="text" id="prod-code" class="input-styled" style="height: 44px;" placeholder="e.g. 101, 8901012..." required>
+                    </div>
+                    <div class="form-group">
+                        <label for="prod-name">Product Name</label>
+                        <input type="text" id="prod-name" class="input-styled" style="height: 44px;" placeholder="e.g. Kids Denim Shirt" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="prod-category">Category</label>
+                        <input type="text" id="prod-category" class="input-styled" style="height: 44px;" placeholder="e.g. Boys Wear" required>
+                    </div>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="form-group">
+                            <label for="prod-price">Retail Price (₹)</label>
+                            <input type="number" id="prod-price" class="input-styled" style="height: 44px;" min="0.01" step="0.01" placeholder="250.00" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="prod-stock">Stock Quantity</label>
+                            <input type="number" id="prod-stock" class="input-styled" style="height: 44px;" min="0" placeholder="50" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeProductModal()">Cancel</button>
+                    <button type="submit" class="btn-primary" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">Save Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: DELETE BILL REASON PROMPT
+       ========================================== -->
+    <div id="delete-bill-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 360px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Delete Sales Bill</h3>
+                <button class="modal-close" id="btn-close-delbill-modal">&times;</button>
+            </div>
+            <div class="modal-body form-grid">
+                <p class="text-muted text-sm">Deleting this transaction will RESTORE the quantities of the products in the bill. Please state a reason for this deletion for audit logs.</p>
+                <div class="form-group" style="margin-top: 8px;">
+                    <label for="delete-reason-input">Reason for Deletion</label>
+                    <input type="text" id="delete-reason-input" class="input-styled" style="height: 44px;" placeholder="e.g. Return, Input error..." required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeDeleteBillModal()">Cancel</button>
+                <button class="btn-primary" id="btn-confirm-delete-bill" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem; background-color: var(--danger); box-shadow: none;">Delete &amp; Restore Stock</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       HIDDEN PRINT VIEW (MEDIA PRINT TARGET)
+       ========================================== -->
+    <div id="receipt-print-area"></div>
+
+    <!-- JS Source Files -->
+    <script src="jsQR.js"></script>
+    <script src="db.js"></script>
+    <script src="scanner.js"></script>
+    <script src="app.js"></script>
+
+    <!-- Theme management initialization script -->
+    <script>
+        function toggleAppTheme() {
+            const body = document.body;
+            if (body.classList.contains('dark-theme')) {
+                body.classList.replace('dark-theme', 'light-theme');
+                localStorage.setItem('theme', 'light');
+            } else if (body.classList.contains('light-theme')) {
+                body.classList.replace('light-theme', 'dark-theme');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                // If neither exists, check system preference
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (prefersDark) {
+                    body.classList.add('light-theme');
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    body.classList.add('dark-theme');
+                    localStorage.setItem('theme', 'dark');
+                }
+            }
+        }
+
+        // Apply saved theme on page load
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme) {
+                document.body.classList.add(savedTheme + '-theme');
+            }
+        })();
+    </script>
+
+    <!-- PWA Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => {
+                        console.log('Progressive Web App SW successfully registered. Scope:', reg.scope);
+                    })
+                    .catch(err => {
+                        console.error('Service Worker registration failed:', err);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>

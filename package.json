@@ -1,0 +1,11 @@
+{
+  "name": "kids-trends-pos",
+  "version": "1.0.0",
+  "description": "Progressive Web Application POS & Inventory Management System for Kid's Trends",
+  "scripts": {
+    "dev": "npx http-server -p 3000 -c-1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

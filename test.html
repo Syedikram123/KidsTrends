@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kid's Trends POS - Test Suite</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0b0f19;
+            color: #f8fafc;
+            padding: 24px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 { color: #6366f1; border-bottom: 2px solid #232e42; padding-bottom: 8px; }
+        .summary { margin: 16px 0; font-size: 1.1rem; }
+        .test-case {
+            background-color: #141b2d;
+            border: 1px solid #232e42;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .test-name { font-weight: 600; }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        .badge.pass { background-color: rgba(52, 211, 153, 0.2); color: #34d399; }
+        .badge.fail { background-color: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .log-error {
+            background-color: rgba(239, 68, 68, 0.05);
+            color: #f87171;
+            padding: 8px 12px;
+            border-left: 3px solid #f87171;
+            font-family: monospace;
+            margin-top: 4px;
+            border-radius: 0 4px 4px 0;
+            display: none;
+        }
+        .test-case.failed-case {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .test-header-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+    </style>
+    <!-- Import db.js wrapper -->
+    <script src="db.js"></script>
+</head>
+<body>
+
+    <h1>KID'S TRENDS POS - TEST SUITE</h1>
+    <div class="summary" id="test-summary">Running assertions...</div>
+    <div id="test-results"></div>
+
+    <script>
+        // Override DB_NAME for testing to protect production data
+        const ORIGINAL_DB_NAME = DB_NAME;
+        // Re-declare local test database
+        let testDbInstance = null;
+
+        // Assertion helper
+        function assert(condition, message) {
+            if (!condition) {
+                throw new Error(message || "Assertion failed");
+            }
+        }
+
+        const tests = [];
+        function addTest(name, fn) {
+            tests.push({ name, fn });
+        }
+
+        // Setup test data seed
+        async function setupTestDb() {
+            // Delete existing test DB if any to start fresh
+            await new Promise((resolve) => {
+                const req = indexedDB.deleteDatabase('KidsTrendsDB_Test');
+                req.onsuccess = () => resolve();
+                req.onerror = () => resolve();
+            });
+
+            // Re-open fresh KidsTrendsDB_Test
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('KidsTrendsDB_Test', 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    db.createObjectStore('settings', { keyPath: 'key' });
+                    
+                    const productStore = db.createObjectStore('products', { keyPath: 'code' });
+                    productStore.createIndex('name', 'name', { unique: false });
+                    productStore.createIndex('category', 'category', { unique: false });
+                    
+                    const billStore = db.createObjectStore('bills', { keyPath: 'id' });
+                    billStore.createIndex('dateTimestamp', 'dateTimestamp', { unique: false });
+                    
+                    db.createObjectStore('deleted_bills', { keyPath: 'id' });
+                    db.createObjectStore('audit_logs', { keyPath: 'id', autoIncrement: true });
+                };
+                request.onsuccess = (e) => {
+                    testDbInstance = e.target.result;
+                    resolve();
+                };
+                request.onerror = () => reject();
+            });
+        }
+
+        // Test 1: Write and Read Product
+        addTest("Verify Product CRUD operations", async () => {
+            const product = { code: 'T101', name: 'Test Shirt', category: 'Kids Wear', price: 200, stock: 10 };
+            
+            // Inject test database instance to bypass global dbInstance
+            dbInstance = testDbInstance;
+
+            await saveProduct(product);
+            const saved = await getProduct('T101');
+            
+            assert(saved !== null, "Product should be saved and loaded");
+            assert(saved.name === 'Test Shirt', "Product name mismatch");
+            assert(saved.price === 200, "Product price mismatch");
+            assert(saved.stock === 10, "Product stock mismatch");
+
+            // Edit product
+            product.stock = 15;
+            await saveProduct(product);
+            const updated = await getProduct('T101');
+            assert(updated.stock === 15, "Product stock update failed");
+
+            // Delete product
+            await deleteProduct('T101');
+            const deleted = await getProduct('T101');
+            assert(deleted === null, "Product deletion failed");
+        });
+
+        // Test 2: Checkout and Stock Deduction
+        addTest("Verify Billing Transaction & Stock Deduction", async () => {
+            dbInstance = testDbInstance;
+
+            // Seed product
+            const p1 = { code: 'B201', name: 'Billing Shirt', category: 'Kids Wear', price: 300, stock: 5 };
+            const p2 = { code: 'B202', name: 'Billing Pant', category: 'Kids Wear', price: 400, stock: 10 };
+            await saveProduct(p1);
+            await saveProduct(p2);
+
+            // Create cart
+            const cart = [
+                { code: 'B201', name: 'Billing Shirt', price: 300, qty: 2, stock: 5 },
+                { code: 'B202', name: 'Billing Pant', price: 400, qty: 3, stock: 10 }
+            ];
+
+            // Run billing
+            const bill = await createBill(cart, { type: 'percentage', value: 10 }, 5); // 10% disc, 5% GST
+
+            assert(bill.id === 'KT00001', `Expected Bill ID KT00001, got ${bill.id}`);
+            assert(bill.subtotal === 1800, `Expected Subtotal 1800, got ${bill.subtotal}`); // (300*2) + (400*3)
+            assert(bill.discountAmount === 180, `Expected Discount 180, got ${bill.discountAmount}`); // 10% of 1800
+            assert(bill.gstAmount === 81, `Expected GST 81, got ${bill.gstAmount}`); // 5% of (1800 - 180) = 5% of 1620
+            assert(bill.grandTotal === 1701, `Expected Grand Total 1701, got ${bill.grandTotal}`); // 1620 + 81
+
+            // Verify stocks deducted
+            const updatedP1 = await getProduct('B201');
+            const updatedP2 = await getProduct('B202');
+            assert(updatedP1.stock === 3, `Expected stock 3, got ${updatedP1.stock}`);
+            assert(updatedP2.stock === 7, `Expected stock 7, got ${updatedP2.stock}`);
+        });
+
+        // Test 3: Stock validation and out-of-stock prevention
+        addTest("Verify OUT OF STOCK prevention during checkout", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { code: 'S301', name: 'Stock Shirt', category: 'Kids Wear', price: 300, stock: 2 };
+            await saveProduct(p1);
+
+            const cart = [
+                { code: 'S301', name: 'Stock Shirt', price: 300, qty: 3, stock: 2 } // Requesting 3 units, only 2 available
+            ];
+
+            let errorThrown = false;
+            try {
+                await createBill(cart, { type: 'none', value: 0 }, 0);
+            } catch (e) {
+                errorThrown = true;
+                assert(e.message.includes("OUT OF STOCK"), `Unexpected error message: ${e.message}`);
+            }
+
+            assert(errorThrown, "Expected billing to fail with OUT OF STOCK error, but it succeeded.");
+
+            // Verify stock remained unchanged at 2
+            const dbProd = await getProduct('S301');
+            assert(dbProd.stock === 2, `Expected stock to remain 2, but got ${dbProd.stock}`);
+        });
+
+        // Test 4: Delete Bill and Restock Products
+        addTest("Verify stock restoration on Bill Deletion", async () => {
+            dbInstance = testDbInstance;
+
+            // Seed products
+            const p1 = { code: 'D401', name: 'Delete Shirt', category: 'Kids Wear', price: 100, stock: 10 };
+            await saveProduct(p1);
+
+            // Checkout
+            const cart = [{ code: 'D401', name: 'Delete Shirt', price: 100, qty: 4, stock: 10 }];
+            const bill = await createBill(cart, { type: 'none', value: 0 }, 0);
+
+            // Verify stock is now 6
+            let prod = await getProduct('D401');
+            assert(prod.stock === 6, `Expected stock 6 after checkout, got ${prod.stock}`);
+
+            // Delete Bill
+            await deleteBill(bill.id, "Customer returned items");
+
+            // Verify stock restored to 10
+            prod = await getProduct('D401');
+            assert(prod.stock === 10, `Expected stock restored to 10, got ${prod.stock}`);
+
+            // Verify bill removed from active bills
+            const checkBill = await getBill(bill.id);
+            assert(checkBill === null, "Bill should be deleted from active bills store");
+
+            // Verify bill exists in deleted bills log
+            const deletedBills = await getDeletedBills();
+            assert(deletedBills.length === 1, "Deleted bill log should contain 1 item");
+            assert(deletedBills[0].id === bill.id, "Deleted bill ID mismatch");
+            assert(deletedBills[0].deletionReason === "Customer returned items", "Deletion reason mismatch");
+        });
+
+        // Runner engine
+        async function runSuite() {
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML = '';
+            
+            let passedCount = 0;
+            let failedCount = 0;
+
+            for (const test of tests) {
+                // Setup isolated database for each test to avoid cross-contamination
+                await setupTestDb();
+
+                const testEl = document.createElement('div');
+                testEl.className = 'test-case';
+
+                try {
+                    await test.fn();
+                    testEl.innerHTML = `
+                        <div class="test-header-row">
+                            <span class="test-name">✓ ${test.name}</span>
+                            <span class="badge pass">PASS</span>
+                        </div>
+                    `;
+                    passedCount++;
+                } catch (e) {
+                    testEl.className = 'test-case failed-case';
+                    testEl.innerHTML = `
+                        <div class="test-header-row">
+                            <span class="test-name">✗ ${test.name}</span>
+                            <span class="badge fail">FAIL</span>
+                        </div>
+                        <div class="log-error" style="display: block;">${e.stack || e.message}</div>
+                    `;
+                    failedCount++;
+                    console.error(e);
+                }
+                resultsDiv.appendChild(testEl);
+            }
+
+            // Restore DB naming
+            dbInstance = null;
+
+            const summaryEl = document.getElementById('test-summary');
+            summaryEl.innerHTML = `Results: ${passedCount} / ${tests.length} tests passed. ` + 
+                (failedCount > 0 ? `<span style="color: #f87171;">${failedCount} failed</span>` : `<span style="color: #34d399;">All tests passed!</span>`);
+        }
+
+        // Launch
+        runSuite();
+    </script>
+</body>
+</html>
