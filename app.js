@@ -391,6 +391,19 @@ function resetBillingInputs() {
     renderCart();
 }
 
+async function viewBillDetails(billId) {
+    try {
+        const bill = await getBill(billId);
+        if (bill) {
+            showReceiptModal(bill);
+        } else {
+            showToast('Bill not found', 'error');
+        }
+    } catch (e) {
+        showToast('Error loading bill: ' + e.message, 'error');
+    }
+}
+
 function showReceiptModal(bill) {
     state.activeBill = bill;
     
