@@ -406,6 +406,7 @@ async function viewBillDetails(billId) {
 
 function showReceiptModal(bill) {
     state.activeBill = bill;
+    state.activeBillSource = state.currentSection;
     
     const billItems = bill.items || [];
     
@@ -488,7 +489,12 @@ function closeReceiptModal() {
     document.getElementById('receipt-modal').style.display = 'none';
     document.getElementById('receipt-print-area').innerHTML = '';
     state.activeBill = null;
-    switchSection('bill');
+    if (state.activeBillSource) {
+        switchSection(state.activeBillSource);
+        state.activeBillSource = null;
+    } else {
+        switchSection('bill');
+    }
 }
 
 function printActiveReceipt() {
