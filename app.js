@@ -363,11 +363,14 @@ async function handleCheckout() {
     checkoutBtn.disabled = true;
     checkoutBtn.innerText = 'Processing...';
 
+    const mobileField = document.getElementById('customer-mobile');
+    const customerMobile = mobileField ? mobileField.value.trim() : '';
+
     try {
         const billRecord = await createBill(state.cart, {
             type: state.discountType,
             value: state.discountValue
-        }, state.paymentMode);
+        }, state.paymentMode, customerMobile);
 
         showToast(`Bill ${billRecord.id} generated successfully!`, 'success');
         
@@ -388,6 +391,8 @@ function resetBillingInputs() {
     state.discountValue = 0;
     document.getElementById('billing-discount-value').value = 0;
     document.getElementById('billing-search').value = '';
+    const mobileField = document.getElementById('customer-mobile');
+    if (mobileField) mobileField.value = '';
     renderCart();
 }
 
@@ -424,6 +429,7 @@ function showReceiptModal(bill) {
     <div><strong>Bill No:</strong> ${bill.id}</div>
     <div><strong>Date:</strong> ${bill.date}</div>
     <div><strong>Time:</strong> ${bill.time}</div>
+    ${bill.customerMobile ? `<div><strong>Customer Mobile Number:</strong> ${bill.customerMobile}</div>` : ''}
 </div>
 <hr class="receipt-divider">
 <table class="receipt-table">
@@ -475,8 +481,16 @@ function showReceiptModal(bill) {
     <strong>${bill.paymentMode}</strong>
 </div>
 <hr class="receipt-divider">
+<div class="receipt-policy">
+    8-Day Replacement Only (No Return)
+</div>
+<hr class="receipt-divider">
 <div class="receipt-footer">
     THANK YOU - VISIT AGAIN
+</div>
+<div class="receipt-branding">
+    Software By <a href="http://www.scangrow.in" target="_blank" style="color: inherit; text-decoration: underline;">www.scangrow.in</a><br>
+    No. 8951337609
 </div>
     `;
 
@@ -1411,6 +1425,17 @@ function setupEventListeners() {
     document.getElementById('nav-bill').addEventListener('click', () => switchSection('bill'));
     document.getElementById('nav-admin').addEventListener('click', () => handleAdminQuickAction('analytics'));
 
+    // Customer Mobile constraints (digits only, max 10)
+    const mobileInput = document.getElementById('customer-mobile');
+    if (mobileInput) {
+        mobileInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/\D/g, '');
+            if (e.target.value.length > 10) {
+                e.target.value = e.target.value.slice(0, 10);
+            }
+        });
+    }
+
     // Billing Search & Autocomplete suggestions
     const searchInput = document.getElementById('billing-search');
     searchInput.addEventListener('input', (e) => handleSearchInput(e.target.value));
@@ -1460,6 +1485,7 @@ function setupEventListeners() {
 
     // Receipt closing / actions
     document.getElementById('btn-close-receipt').addEventListener('click', closeReceiptModal);
+    document.getElementById('btn-whatsapp-receipt').addEventListener('click', handleWhatsAppShare);
     document.getElementById('btn-print-receipt').addEventListener('click', printActiveReceipt);
 
     // Admin Tabs Swaps
@@ -1558,4 +1584,248 @@ function playBeepSound() {
     } catch (e) {
         // Silent catch for audio policy browser rules
     }
+}
+
+// ==========================================
+// WHATSAPP BILL SHARING & CANVAS GENERATION
+// ==========================================
+async function handleWhatsAppShare() {
+    const bill = state.activeBill;
+    if (!bill) {
+        showToast("No active bill to share", "error");
+        return;
+    }
+
+    let mobileNumber = bill.customerMobile;
+    if (!mobileNumber) {
+        showToast("Please enter the customer's mobile number to share via WhatsApp.", "warning");
+        const userMobile = prompt("Please enter customer's 10-digit mobile number:");
+        if (userMobile) {
+            const cleanMobile = userMobile.replace(/\D/g, '');
+            if (cleanMobile.length === 10) {
+                mobileNumber = cleanMobile;
+                bill.customerMobile = mobileNumber;
+                try {
+                    await updateBillMobile(bill.id, mobileNumber);
+                    showReceiptModal(bill);
+                    showToast("Mobile number updated successfully!", "success");
+                } catch (dbErr) {
+                    console.error("Failed to save mobile number:", dbErr);
+                }
+            } else {
+                showToast("Invalid number! Must be exactly 10 digits.", "error");
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+
+    showToast("Generating receipt image...", "info");
+    
+    try {
+        const canvas = generateReceiptCanvas(bill);
+        canvas.toBlob(async (blob) => {
+            if (!blob) {
+                showToast("Failed to generate image.", "error");
+                return;
+            }
+
+            let formattedMobile = mobileNumber;
+            if (!formattedMobile.startsWith('91') && formattedMobile.length === 10) {
+                formattedMobile = '91' + formattedMobile;
+            }
+
+            const whatsappUrl = `https://wa.me/${formattedMobile}`;
+            const file = new File([blob], `bill_${bill.id}.png`, { type: 'image/png' });
+            let shared = false;
+
+            if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                try {
+                    await navigator.share({
+                        files: [file],
+                        title: `Kid's Trends Bill ${bill.id}`,
+                        text: `Here is your bill from Kid's Trends (Bill No: ${bill.id}).`
+                    });
+                    shared = true;
+                    showToast("Shared successfully!", "success");
+                } catch (shareErr) {
+                    console.log("Web Share failed: ", shareErr);
+                }
+            }
+
+            if (!shared) {
+                try {
+                    await navigator.clipboard.write([
+                        new ClipboardItem({ 'image/png': blob })
+                    ]);
+                    showToast("Receipt copied to clipboard! Paste it (Ctrl+V) in WhatsApp.", "success");
+                } catch (clipErr) {
+                    console.warn("Clipboard copy failed: ", clipErr);
+                    showToast("Open WhatsApp and attach the bill image.", "info");
+                }
+                
+                window.open(whatsappUrl, '_blank');
+            }
+        }, 'image/png');
+    } catch (err) {
+        showToast("Error sharing: " + err.message, "error");
+    }
+}
+
+function generateReceiptCanvas(bill) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const items = bill.items || [];
+    const width = 380;
+    let height = 340;
+    height += items.length * 30;
+    if (bill.customerMobile) height += 20;
+    if (bill.discountAmount > 0) height += 20;
+    
+    canvas.width = width;
+    canvas.height = height;
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    
+    let y = 30;
+    ctx.fillText("KID'S TRENDS", width / 2, y);
+    ctx.font = '12px monospace';
+    y += 20;
+    ctx.fillText("A Complete Kids Wear Collection", width / 2, y);
+    y += 16;
+    ctx.fillText("Near Siddiq Shah Taleem", width / 2, y);
+    y += 16;
+    ctx.fillText("Choubara Road, Bidar", width / 2, y);
+    y += 16;
+    ctx.fillText("GSTIN: 29EEIPA4380H1ZE", width / 2, y);
+    y += 16;
+    ctx.fillText("Phone: 8431520625, 8453554561", width / 2, y);
+    
+    y += 12;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    ctx.textAlign = 'left';
+    ctx.font = '12px monospace';
+    y += 18;
+    ctx.fillText(`Bill No: ${bill.id}`, 15, y);
+    y += 16;
+    ctx.fillText(`Date: ${bill.date}`, 15, y);
+    y += 16;
+    ctx.fillText(`Time: ${bill.time}`, 15, y);
+    if (bill.customerMobile) {
+        y += 16;
+        ctx.fillText(`Customer Mobile Number: ${bill.customerMobile}`, 15, y);
+    }
+    
+    y += 12;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    y += 18;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText("ITEM", 15, y);
+    ctx.textAlign = 'center';
+    ctx.fillText("QTY", 200, y);
+    ctx.textAlign = 'right';
+    ctx.fillText("RATE", 290, y);
+    ctx.fillText("TOTAL", 365, y);
+    
+    y += 10;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    ctx.font = '12px monospace';
+    items.forEach(item => {
+        y += 20;
+        ctx.textAlign = 'left';
+        let itemName = `${item.name}-${item.size}`;
+        if (itemName.length > 20) itemName = itemName.substring(0, 18) + '..';
+        ctx.fillText(itemName, 15, y);
+        
+        ctx.textAlign = 'center';
+        ctx.fillText(String(item.qty), 200, y);
+        
+        ctx.textAlign = 'right';
+        ctx.fillText(`₹${Math.round(item.price)}`, 290, y);
+        ctx.fillText(`₹${Math.round(item.total)}`, 365, y);
+    });
+    
+    y += 12;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    ctx.textAlign = 'left';
+    y += 18;
+    ctx.fillText("Subtotal:", 15, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(`₹${bill.subtotal.toFixed(2)}`, 365, y);
+    
+    if (bill.discountAmount > 0) {
+        y += 18;
+        ctx.textAlign = 'left';
+        ctx.fillText("Discount:", 15, y);
+        ctx.textAlign = 'right';
+        ctx.fillText(`₹${bill.discountAmount.toFixed(2)}`, 365, y);
+    }
+    
+    y += 8;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    y += 20;
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText("Grand Total:", 15, y);
+    ctx.textAlign = 'right';
+    ctx.fillText(`₹${bill.grandTotal.toFixed(2)}`, 365, y);
+    
+    y += 14;
+    ctx.font = 'italic 10px monospace';
+    ctx.fillText("(Inclusive of all Taxes)", 365, y);
+    
+    y += 8;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    y += 18;
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText("Amount Paid:", 15, y);
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(bill.paymentMode, 365, y);
+    
+    y += 8;
+    drawCanvasDivider(ctx, 10, width - 10, y);
+    
+    y += 20;
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText("8-Day Replacement Only (No Return)", width / 2, y);
+    
+    y += 20;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText("THANK YOU - VISIT AGAIN", width / 2, y);
+    
+    y += 20;
+    ctx.font = '10px monospace';
+    ctx.fillStyle = '#555555';
+    ctx.fillText("Software By www.scangrow.in", width / 2, y);
+    y += 14;
+    ctx.fillText("No. 8951337609", width / 2, y);
+    
+    return canvas;
+}
+
+function drawCanvasDivider(ctx, x1, x2, y) {
+    ctx.beginPath();
+    ctx.setLineDash([2, 2]);
+    ctx.moveTo(x1, y);
+    ctx.lineTo(x2, y);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
 }

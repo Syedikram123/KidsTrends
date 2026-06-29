@@ -1550,3 +1550,37 @@ header {
     border: 1px solid var(--border-color);
 }
 
+/* WhatsApp sharing button styles */
+.btn-whatsapp {
+    background-color: #25d366 !important;
+    color: #ffffff !important;
+    border-color: #25d366 !important;
+}
+
+.btn-whatsapp:hover, .btn-whatsapp:active {
+    background-color: #128c7e !important;
+    border-color: #128c7e !important;
+}
+
+/* Receipt return policy & branding */
+.receipt-policy {
+    text-align: center;
+    margin-top: 10px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+}
+
+.receipt-branding {
+    text-align: center;
+    margin-top: 8px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+
+/* Customer mobile number field styles */
+.mobile-number-container {
+    width: 100%;
+}
+

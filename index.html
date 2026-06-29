@@ -177,6 +177,11 @@
                 <!-- CONTROLS DOCK (BOTTOM AREA) -->
                 <div class="billing-dock">
                     
+                    <!-- Customer Mobile Number -->
+                    <div class="mobile-number-container">
+                        <input type="tel" id="customer-mobile" class="input-styled" placeholder="Customer Mobile Number (Optional)" pattern="[0-9]*" inputmode="numeric" maxlength="10">
+                    </div>
+                    
                     <!-- Search Input & Scanner button -->
                     <div class="search-container">
                         <div class="search-input-wrapper">
@@ -489,6 +494,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeReceiptModal()">Close / New Bill</button>
+                <button class="btn-primary btn-whatsapp" id="btn-whatsapp-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">WhatsApp 💬</button>
                 <button class="btn-primary" id="btn-print-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">Print Receipt 🖨️</button>
             </div>
         </div>

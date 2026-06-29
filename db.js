@@ -226,7 +226,7 @@ async function deleteProduct(code) {
  * Deducts stock from specific sizes of products.
  * Uses request chaining to avoid microtask yields.
  */
-async function createBill(cartItems, discountInfo, paymentMode) {
+async function createBill(cartItems, discountInfo, paymentMode, customerMobile) {
     const db = await initDB();
     
     return new Promise((resolve, reject) => {
@@ -360,7 +360,8 @@ async function createBill(cartItems, discountInfo, paymentMode) {
                                 gstPercent: 0,
                                 gstAmount: 0,
                                 grandTotal,
-                                paymentMode: paymentMode || 'Cash'
+                                paymentMode: paymentMode || 'Cash',
+                                customerMobile: customerMobile || ''
                             };
 
                             // 5. Save settings counters
@@ -440,6 +441,31 @@ async function getBill(id) {
             resolve(b ? sanitizeBill(b) : null);
         };
         request.onerror = () => reject(request.error);
+    });
+}
+
+/**
+ * Updates an existing bill with a customer mobile number.
+ */
+async function updateBillMobile(billId, mobile) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction('bills', 'readwrite');
+        const store = transaction.objectStore('bills');
+        
+        const req = store.get(billId);
+        req.onsuccess = () => {
+            const bill = req.result;
+            if (bill) {
+                bill.customerMobile = mobile;
+                const putReq = store.put(bill);
+                putReq.onsuccess = () => resolve(true);
+                putReq.onerror = () => reject(putReq.error);
+            } else {
+                reject(new Error("Bill not found"));
+            }
+        };
+        req.onerror = () => reject(req.error);
     });
 }
 

@@ -291,6 +291,35 @@
             assert(bill2.id === expectedBill2Id, `Expected Incremented Bill ID ${expectedBill2Id}, got ${bill2.id}`);
         });
 
+        // Test 6: Verify Customer Mobile Number persistence & updates
+        addTest("Verify Customer Mobile number persistence and update settings", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'M601', 
+                name: 'Mobile Shirt', 
+                category: 'Kids Wear', 
+                sizes: [{ size: 'M', price: 100, stock: 10 }] 
+            };
+            await saveProduct(p1);
+
+            const cart = [{ code: 'M601', name: 'Mobile Shirt', size: 'M', price: 100, qty: 1 }];
+            
+            // 1. Create a bill with a mobile number
+            const billWithMobile = await createBill(cart, { type: 'none', value: 0 }, 'Cash', '9876543210');
+            const loadedBill1 = await getBill(billWithMobile.id);
+            assert(loadedBill1.customerMobile === '9876543210', `Expected customer mobile 9876543210, got ${loadedBill1.customerMobile}`);
+
+            // 2. Create a bill without a mobile number and then update it
+            const billNoMobile = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+            const loadedBill2 = await getBill(billNoMobile.id);
+            assert(loadedBill2.customerMobile === '', `Expected customer mobile to be empty, got ${loadedBill2.customerMobile}`);
+
+            await updateBillMobile(billNoMobile.id, '1234567890');
+            const loadedBill2Updated = await getBill(billNoMobile.id);
+            assert(loadedBill2Updated.customerMobile === '1234567890', `Expected updated customer mobile 1234567890, got ${loadedBill2Updated.customerMobile}`);
+        });
+
         // Test runner engine
         async function runSuite() {
             const resultsDiv = document.getElementById('test-results');
