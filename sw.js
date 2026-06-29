@@ -8,6 +8,7 @@ const ASSETS = [
     'index.html',
     'style.css',
     'db.js',
+    'jsQR.js',
     'scanner.js',
     'app.js',
     'manifest.json',
