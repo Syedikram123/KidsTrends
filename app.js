@@ -1,4 +1,4 @@
-// KID'S TRENDS POS - APPLICATION LOGIC (PHASE 2)
+// KID'S TRENDS POS - APPLICATION LOGIC (PHASE 2 - ROBUST VERSION)
 
 // ==========================================
 // STATE MANAGEMENT
@@ -28,9 +28,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Initialize IndexedDB
         await initDB();
         
-        // Ensure default PIN/Password is seeded in Settings
+        // Ensure default PIN/Password is seeded in Settings (overwriting legacy ABCD1234 default hash)
         const storedPinHash = await getSetting('admin_pin_hash');
-        if (!storedPinHash) {
+        if (!storedPinHash || storedPinHash === '1635c8525afbae58c37bede3c9440844e9143727cc7c160bed665ec378d8a262') {
             await setSetting('admin_pin_hash', DEFAULT_PIN_HASH);
         }
         
@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
  * Refreshes the memory cache of products for super fast searching.
  */
 async function refreshProductsCache() {
-    state.allProducts = await getAllProducts();
+    state.allProducts = await getAllProducts() || [];
     // Update Home dashboard and inventory widgets
     await updateHomeDashboard();
 }
@@ -63,7 +63,7 @@ function switchSection(sectionId) {
     state.currentSection = sectionId;
     
     // Toggle active class on views
-    document.querySelectorAll('.view-section').forEach(section => {
+    (document.querySelectorAll('.view-section') || []).forEach(section => {
         section.classList.remove('active');
     });
     
@@ -73,7 +73,7 @@ function switchSection(sectionId) {
     }
 
     // Toggle navigation highlight
-    document.querySelectorAll('.nav-item').forEach(item => {
+    (document.querySelectorAll('.nav-item') || []).forEach(item => {
         item.classList.remove('active');
     });
     const targetNavItem = document.getElementById(`nav-${sectionId}`);
@@ -86,7 +86,6 @@ function switchSection(sectionId) {
         updateHomeDashboard();
     } else if (sectionId === 'bill') {
         renderCart();
-        // REMOVED auto-focus on billing search box
     } else if (sectionId === 'admin') {
         renderAdminView();
     }
@@ -114,7 +113,6 @@ function renderAdminView() {
         adminLogin.style.display = 'none';
         adminContent.style.display = 'block';
         
-        // If a pending quick action tab exists, route to it
         if (state.pendingAdminTab) {
             state.adminTab = state.pendingAdminTab;
             state.pendingAdminTab = null;
@@ -134,10 +132,10 @@ function renderAdminView() {
 
 function switchAdminTab(tabName) {
     state.adminTab = tabName;
-    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+    (document.querySelectorAll('.admin-tab-btn') || []).forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
     });
-    document.querySelectorAll('.admin-tab-content').forEach(content => {
+    (document.querySelectorAll('.admin-tab-content') || []).forEach(content => {
         content.classList.toggle('active', content.id === `admin-tab-${tabName}`);
     });
 
@@ -166,10 +164,10 @@ function handleSearchInput(query) {
     const cleanQuery = query.toLowerCase();
     
     // Filter from local products cache (< 5ms)
-    const matches = state.allProducts.filter(p => 
-        p.code.toLowerCase().includes(cleanQuery) || 
-        p.name.toLowerCase().includes(cleanQuery) ||
-        p.category.toLowerCase().includes(cleanQuery)
+    const matches = (state.allProducts || []).filter(p => 
+        (p.code || '').toLowerCase().includes(cleanQuery) || 
+        (p.name || '').toLowerCase().includes(cleanQuery) ||
+        (p.category || '').toLowerCase().includes(cleanQuery)
     );
 
     if (matches.length === 0) {
@@ -183,10 +181,10 @@ function handleSearchInput(query) {
     let count = 0;
 
     for (const p of matches) {
-        for (const s of p.sizes) {
-            if (count >= 8) break; // Limit list size for mobile rendering
+        const sizesList = p.sizes || [];
+        for (const s of sizesList) {
+            if (count >= 8) break;
             
-            // Format name clearly: Name-Size (e.g. Shirt-12)
             const fullName = `${p.name}-${s.size}`;
             
             suggestionsHtml += `
@@ -208,13 +206,14 @@ function handleSearchInput(query) {
 }
 
 function addProductToCart(code, size) {
-    const product = state.allProducts.find(p => p.code === code);
+    const product = (state.allProducts || []).find(p => p.code === code);
     if (!product) {
         showToast('Product not found', 'error');
         return;
     }
 
-    const sizeObj = product.sizes.find(s => s.size === String(size).trim());
+    const sizesList = product.sizes || [];
+    const sizeObj = sizesList.find(s => s.size === String(size).trim());
     if (!sizeObj) {
         showToast(`Size ${size} not found`, 'error');
         return;
@@ -225,8 +224,7 @@ function addProductToCart(code, size) {
         return;
     }
 
-    // Look for matching item in cart (matches code AND size)
-    const existing = state.cart.find(item => item.code === code && item.size === size);
+    const existing = (state.cart || []).find(item => item.code === code && item.size === size);
     if (existing) {
         if (existing.qty >= sizeObj.stock) {
             showToast(`Stock limit reached (${sizeObj.stock} units)`, 'warning');
@@ -244,7 +242,6 @@ function addProductToCart(code, size) {
         });
     }
 
-    // Clear search suggestions
     document.getElementById('billing-search').value = '';
     document.getElementById('search-suggestions').style.display = 'none';
     
@@ -256,12 +253,12 @@ function addProductToCart(code, size) {
 // CART CONTROLS
 // ==========================================
 function updateQuantity(code, size, delta) {
-    const item = state.cart.find(i => i.code === code && i.size === size);
+    const item = (state.cart || []).find(i => i.code === code && i.size === size);
     if (!item) return;
 
     const newQty = item.qty + delta;
     if (newQty <= 0) {
-        state.cart = state.cart.filter(i => !(i.code === code && i.size === size));
+        state.cart = (state.cart || []).filter(i => !(i.code === code && i.size === size));
     } else {
         if (newQty > item.stock) {
             showToast(`Only ${item.stock} units available in stock.`, 'warning');
@@ -273,7 +270,7 @@ function updateQuantity(code, size, delta) {
 }
 
 function removeItemFromCart(code, size) {
-    state.cart = state.cart.filter(i => !(i.code === code && i.size === size));
+    state.cart = (state.cart || []).filter(i => !(i.code === code && i.size === size));
     renderCart();
 }
 
@@ -281,7 +278,7 @@ function renderCart() {
     const cartTbody = document.getElementById('cart-tbody');
     const checkoutBtn = document.getElementById('btn-checkout');
 
-    if (state.cart.length === 0) {
+    if (!state.cart || state.cart.length === 0) {
         cartTbody.innerHTML = `
             <tr>
                 <td colspan="5" class="empty-cart-row">
@@ -299,7 +296,7 @@ function renderCart() {
     checkoutBtn.disabled = false;
     
     let subtotal = 0;
-    cartTbody.innerHTML = state.cart.map(item => {
+    cartTbody.innerHTML = (state.cart || []).map(item => {
         const itemTotal = item.price * item.qty;
         subtotal += itemTotal;
         return `
@@ -336,7 +333,7 @@ function calculateCartTotals(subtotal) {
     }
 
     const grandTotal = Math.round((subtotal - discountAmount) * 100) / 100;
-    const itemsCount = state.cart.reduce((sum, item) => sum + item.qty, 0);
+    const itemsCount = (state.cart || []).reduce((sum, item) => sum + item.qty, 0);
 
     updateTotalsDisplay(itemsCount, subtotal, discountAmount, grandTotal);
 }
@@ -345,7 +342,6 @@ function updateTotalsDisplay(itemsCount, subtotal, discount, grandTotal) {
     document.getElementById('summary-items').innerText = itemsCount;
     document.getElementById('summary-subtotal').innerText = `₹${subtotal.toFixed(2)}`;
     
-    // Conditionally display discount row
     const discountRow = document.getElementById('summary-discount').parentElement;
     if (discount > 0) {
         discountRow.style.display = 'flex';
@@ -361,14 +357,13 @@ function updateTotalsDisplay(itemsCount, subtotal, discount, grandTotal) {
 // CHECKOUT & RECEIPT ENGINE
 // ==========================================
 async function handleCheckout() {
-    if (state.cart.length === 0) return;
+    if (!state.cart || state.cart.length === 0) return;
 
     const checkoutBtn = document.getElementById('btn-checkout');
     checkoutBtn.disabled = true;
     checkoutBtn.innerText = 'Processing...';
 
     try {
-        // Execute sizes transaction in db.js
         const billRecord = await createBill(state.cart, {
             type: state.discountType,
             value: state.discountValue
@@ -376,14 +371,10 @@ async function handleCheckout() {
 
         showToast(`Bill ${billRecord.id} generated successfully!`, 'success');
         
-        // Refresh products inventory caches
         await refreshProductsCache();
         
-        // Reset checkout state
         state.cart = [];
         resetBillingInputs();
-
-        // Open bill preview modal
         showReceiptModal(billRecord);
         
     } catch (err) {
@@ -403,7 +394,8 @@ function resetBillingInputs() {
 function showReceiptModal(bill) {
     state.activeBill = bill;
     
-    // Receipt body compile (Inclusive of all taxes template)
+    const billItems = bill.items || [];
+    
     const receiptHtml = `
 <div class="receipt-header">
     <h2>KID'S TRENDS</h2>
@@ -430,7 +422,7 @@ function showReceiptModal(bill) {
         </tr>
     </thead>
     <tbody>
-        ${bill.items.map(item => `
+        ${(billItems || []).map(item => `
             <tr>
                 <td class="text-left">${item.name}-${item.size}</td>
                 <td class="text-center">${item.qty}</td>
@@ -494,20 +486,21 @@ function printActiveReceipt() {
 // HOME SCREEN METRICS & DASHBOARD
 // ==========================================
 async function updateHomeDashboard() {
-    const bills = await getAllBills();
+    const bills = await getAllBills() || [];
     
     // Get today's local date
     const now = new Date();
     const todayStr = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`;
 
     // Filter today's sales
-    const todayBills = bills.filter(b => b.date === todayStr);
+    const todayBills = (bills || []).filter(b => b.date === todayStr);
 
     let todayRevenue = 0;
     let todayItemsSold = 0;
-    todayBills.forEach(b => {
+    (todayBills || []).forEach(b => {
         todayRevenue += b.grandTotal;
-        b.items.forEach(item => {
+        const bItems = b.items || [];
+        (bItems || []).forEach(item => {
             todayItemsSold += item.qty;
         });
     });
@@ -522,11 +515,11 @@ async function updateHomeDashboard() {
     if (bills.length === 0) {
         recentBillsList.innerHTML = '<div class="no-recent">No transactions logged yet.</div>';
     } else {
-        recentBillsList.innerHTML = bills.slice(0, 5).map(b => `
+        recentBillsList.innerHTML = (bills || []).slice(0, 5).map(b => `
             <div class="transaction-item" onclick="viewBillDetails('${b.id}')">
                 <div class="trans-details">
                     <div class="trans-id">${b.id}</div>
-                    <div class="trans-meta">${b.time} | ${b.items.length} items (${b.paymentMode})</div>
+                    <div class="trans-meta">${b.time} | ${(b.items || []).length} items (${b.paymentMode})</div>
                 </div>
                 <div class="trans-amount">₹${b.grandTotal.toFixed(2)}</div>
             </div>
@@ -543,8 +536,9 @@ function updateInventoryHealthInsights(allBills) {
     let lowStockCount = 0;
 
     // Process all products and their sizes
-    state.allProducts.forEach(p => {
-        p.sizes.forEach(s => {
+    (state.allProducts || []).forEach(p => {
+        const sizesList = p.sizes || [];
+        (sizesList || []).forEach(s => {
             availableCount += s.stock;
             if (s.stock === 0) {
                 outOfStockCount++;
@@ -556,11 +550,12 @@ function updateInventoryHealthInsights(allBills) {
 
     // Fast selling count (distinct size items sold in the last 30 days)
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const recentBills = allBills.filter(b => b.dateTimestamp >= thirtyDaysAgo);
+    const recentBills = (allBills || []).filter(b => b.dateTimestamp >= thirtyDaysAgo);
     
     const salesMap = {};
-    recentBills.forEach(b => {
-        b.items.forEach(item => {
+    (recentBills || []).forEach(b => {
+        const bItems = b.items || [];
+        (bItems || []).forEach(item => {
             const key = `${item.code}-${item.size}`;
             salesMap[key] = (salesMap[key] || 0) + item.qty;
         });
@@ -600,8 +595,9 @@ function openInsightsDetail(type) {
         `;
         
         const list = [];
-        state.allProducts.forEach(p => {
-            p.sizes.forEach(s => {
+        (state.allProducts || []).forEach(p => {
+            const sizesList = p.sizes || [];
+            (sizesList || []).forEach(s => {
                 if (s.stock > 0) {
                     list.push({ code: p.code, name: p.name, size: s.size, price: s.price, stock: s.stock });
                 }
@@ -611,7 +607,7 @@ function openInsightsDetail(type) {
         if (list.length === 0) {
             body.innerHTML = '<tr><td colspan="5" class="text-center pad-y-md text-muted">No items currently in stock.</td></tr>';
         } else {
-            body.innerHTML = list.map(x => `
+            body.innerHTML = (list || []).map(x => `
                 <tr>
                     <td class="font-medium">${x.code}</td>
                     <td>${x.name}</td>
@@ -635,8 +631,9 @@ function openInsightsDetail(type) {
         `;
         
         const list = [];
-        state.allProducts.forEach(p => {
-            p.sizes.forEach(s => {
+        (state.allProducts || []).forEach(p => {
+            const sizesList = p.sizes || [];
+            (sizesList || []).forEach(s => {
                 if (s.stock === 0) {
                     list.push({ code: p.code, name: p.name, size: s.size, price: s.price, stock: s.stock });
                 }
@@ -646,7 +643,7 @@ function openInsightsDetail(type) {
         if (list.length === 0) {
             body.innerHTML = '<tr><td colspan="5" class="text-center pad-y-md text-muted">Excellent! No out of stock items.</td></tr>';
         } else {
-            body.innerHTML = list.map(x => `
+            body.innerHTML = (list || []).map(x => `
                 <tr class="stock-out-row">
                     <td class="font-medium">${x.code}</td>
                     <td>${x.name}</td>
@@ -670,8 +667,9 @@ function openInsightsDetail(type) {
         `;
         
         const list = [];
-        state.allProducts.forEach(p => {
-            p.sizes.forEach(s => {
+        (state.allProducts || []).forEach(p => {
+            const sizesList = p.sizes || [];
+            (sizesList || []).forEach(s => {
                 if (s.stock > 0 && s.stock <= 5) {
                     list.push({ code: p.code, name: p.name, size: s.size, price: s.price, stock: s.stock });
                 }
@@ -681,7 +679,7 @@ function openInsightsDetail(type) {
         if (list.length === 0) {
             body.innerHTML = '<tr><td colspan="5" class="text-center pad-y-md text-muted">All stocks are at healthy levels.</td></tr>';
         } else {
-            body.innerHTML = list.map(x => `
+            body.innerHTML = (list || []).map(x => `
                 <tr class="stock-low-row">
                     <td class="font-medium">${x.code}</td>
                     <td>${x.name}</td>
@@ -703,15 +701,15 @@ function openInsightsDetail(type) {
             </tr>
         `;
 
-        // Calculate sales count in the last 30 days
         const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
         
         getAllBills().then(allBills => {
-            const recentBills = allBills.filter(b => b.dateTimestamp >= thirtyDaysAgo);
+            const recentBills = (allBills || []).filter(b => b.dateTimestamp >= thirtyDaysAgo);
             
             const salesMap = {};
-            recentBills.forEach(b => {
-                b.items.forEach(item => {
+            (recentBills || []).forEach(b => {
+                const bItems = b.items || [];
+                (bItems || []).forEach(item => {
                     const key = `${item.code}|${item.name}|${item.size}`;
                     salesMap[key] = (salesMap[key] || 0) + item.qty;
                 });
@@ -722,13 +720,12 @@ function openInsightsDetail(type) {
                 return { code: parts[0], name: parts[1], size: parts[2], qtySold: salesMap[k] };
             });
 
-            // Sort by quantity sold descending
             list.sort((a, b) => b.qtySold - a.qtySold);
 
             if (list.length === 0) {
                 body.innerHTML = '<tr><td colspan="4" class="text-center pad-y-md text-muted">No sales logged in the last 30 days.</td></tr>';
             } else {
-                body.innerHTML = list.slice(0, 10).map((x, index) => `
+                body.innerHTML = (list || []).slice(0, 10).map((x, index) => `
                     <tr>
                         <td class="text-center font-bold">${index + 1}</td>
                         <td>
@@ -781,15 +778,10 @@ function closeScannerOverlay() {
     scannerModal.style.display = 'none';
 }
 
-/**
- * Parses scanned QR text.
- * Can be raw product code (e.g. 101) or specific combination (e.g. 101-12).
- */
 function handleScannedCode(scannedCode) {
     const cleanCode = String(scannedCode).trim();
     if (!cleanCode) return;
 
-    // Check if code specifies a size using hyphen separator
     const hyphenIndex = cleanCode.indexOf('-');
     if (hyphenIndex !== -1) {
         const prodCode = cleanCode.substring(0, hyphenIndex).trim();
@@ -798,20 +790,18 @@ function handleScannedCode(scannedCode) {
         return;
     }
 
-    // If it's a raw product code, load sizes to select
-    const product = state.allProducts.find(p => p.code === cleanCode);
+    const product = (state.allProducts || []).find(p => p.code === cleanCode);
     if (!product) {
         showToast(`Product code ${cleanCode} not found in database`, 'error');
         return;
     }
 
-    // If product has only one size, add it directly
-    if (product.sizes.length === 1) {
-        addProductToCart(product.code, product.sizes[0].size);
+    const sizesList = product.sizes || [];
+    if (sizesList.length === 1) {
+        addProductToCart(product.code, sizesList[0].size);
         return;
     }
 
-    // Open size selector modal for multi-size product
     openSizeSelectModal(product);
 }
 
@@ -820,7 +810,8 @@ function openSizeSelectModal(product) {
     document.getElementById('size-select-product-name').innerText = `Select size for ${product.name} (${product.code}):`;
     
     const container = document.getElementById('size-select-buttons-container');
-    container.innerHTML = product.sizes.map(s => `
+    const sizesList = product.sizes || [];
+    container.innerHTML = (sizesList || []).map(s => `
         <button type="button" class="btn-primary" style="height: 48px; text-transform: uppercase;" 
                 onclick="addProductToCart('${product.code}', '${s.size}'); closeSizeSelectModal();">
             Size: ${s.size} &nbsp;&nbsp;|&nbsp;&nbsp; ₹${s.price} &nbsp;&nbsp; (Stock: ${s.stock})
@@ -879,8 +870,7 @@ async function sha256(message) {
 // ADMIN: ANALYTICS TAB
 // ==========================================
 async function loadAnalytics(rangeType) {
-    // Set active style on filter button
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    (document.querySelectorAll('.filter-btn') || []).forEach(btn => {
         btn.classList.toggle('active', btn.dataset.range === rangeType);
     });
 
@@ -891,29 +881,29 @@ async function loadAnalytics(rangeType) {
         customFields.style.display = 'none';
     }
 
-    const bills = await getAllBills();
+    const bills = await getAllBills() || [];
     let filteredBills = [];
 
     const now = new Date();
     const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
     if (rangeType === 'today') {
-        filteredBills = bills.filter(b => new Date(b.dateTimestamp) >= todayDate);
+        filteredBills = (bills || []).filter(b => new Date(b.dateTimestamp) >= todayDate);
     } else if (rangeType === 'yesterday') {
         const yesterdayDate = new Date(todayDate);
         yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-        filteredBills = bills.filter(b => {
+        filteredBills = (bills || []).filter(b => {
             const bDate = new Date(b.dateTimestamp);
             return bDate >= yesterdayDate && bDate < todayDate;
         });
     } else if (rangeType === '7days') {
         const sevenDaysAgo = new Date(todayDate);
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        filteredBills = bills.filter(b => new Date(b.dateTimestamp) >= sevenDaysAgo);
+        filteredBills = (bills || []).filter(b => new Date(b.dateTimestamp) >= sevenDaysAgo);
     } else if (rangeType === '30days') {
         const thirtyDaysAgo = new Date(todayDate);
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        filteredBills = bills.filter(b => new Date(b.dateTimestamp) >= thirtyDaysAgo);
+        filteredBills = (bills || []).filter(b => new Date(b.dateTimestamp) >= thirtyDaysAgo);
     } else if (rangeType === 'custom') {
         const startVal = document.getElementById('analytics-start-date').value;
         const endVal = document.getElementById('analytics-end-date').value;
@@ -921,7 +911,7 @@ async function loadAnalytics(rangeType) {
             const startDate = new Date(startVal);
             const endDate = new Date(endVal);
             endDate.setHours(23, 59, 59, 999);
-            filteredBills = bills.filter(b => {
+            filteredBills = (bills || []).filter(b => {
                 const ts = b.dateTimestamp;
                 return ts >= startDate.getTime() && ts <= endDate.getTime();
             });
@@ -931,11 +921,12 @@ async function loadAnalytics(rangeType) {
     // Metrics compilation
     let revenue = 0;
     let productsSold = 0;
-    const itemMap = {}; // itemKey -> { name, code, size, qty, revenue }
+    const itemMap = {};
 
-    filteredBills.forEach(b => {
+    (filteredBills || []).forEach(b => {
         revenue += b.grandTotal;
-        b.items.forEach(item => {
+        const bItems = b.items || [];
+        (bItems || []).forEach(item => {
             productsSold += item.qty;
             const key = `${item.code}-${item.size}`;
             if (!itemMap[key]) {
@@ -953,7 +944,6 @@ async function loadAnalytics(rangeType) {
     document.getElementById('report-items').innerText = productsSold;
     document.getElementById('report-aov').innerText = `₹${averageOrder.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 
-    // Top products
     const topProducts = Object.values(itemMap);
     topProducts.sort((a, b) => b.qty - a.qty);
 
@@ -961,7 +951,7 @@ async function loadAnalytics(rangeType) {
     if (topProducts.length === 0) {
         topTbody.innerHTML = '<tr><td colspan="4" class="text-center pad-y-md text-muted">No products sold in this period.</td></tr>';
     } else {
-        topTbody.innerHTML = topProducts.slice(0, 5).map((p, idx) => `
+        topTbody.innerHTML = (topProducts || []).slice(0, 5).map((p, idx) => `
             <tr>
                 <td class="text-center font-bold">${idx + 1}</td>
                 <td>
@@ -981,13 +971,13 @@ function renderRevenueSVGChart(bills, rangeType) {
     const chartContainer = document.getElementById('report-chart-container');
     chartContainer.innerHTML = '';
 
-    if (bills.length === 0) {
+    if (!bills || bills.length === 0) {
         chartContainer.innerHTML = '<div class="chart-empty">No sales data available.</div>';
         return;
     }
 
     const dailySales = {};
-    bills.forEach(b => {
+    (bills || []).forEach(b => {
         if (!dailySales[b.date]) {
             dailySales[b.date] = { date: b.date, revenue: 0, timestamp: b.dateTimestamp };
         }
@@ -997,7 +987,7 @@ function renderRevenueSVGChart(bills, rangeType) {
     const dataPoints = Object.values(dailySales);
     dataPoints.sort((a, b) => a.timestamp - b.timestamp);
 
-    const maxRevenue = Math.max(...dataPoints.map(d => d.revenue), 100);
+    const maxRevenue = Math.max(...(dataPoints || []).map(d => d.revenue), 100);
 
     const width = 600;
     const height = 180;
@@ -1009,7 +999,7 @@ function renderRevenueSVGChart(bills, rangeType) {
     const barWidth = Math.max((chartWidth / dataPoints.length) - 10, 5);
     const spacing = (chartWidth - (barWidth * dataPoints.length)) / (dataPoints.length > 1 ? (dataPoints.length - 1) : 1);
 
-    dataPoints.forEach((d, idx) => {
+    (dataPoints || []).forEach((d, idx) => {
         const x = padding + (idx * (barWidth + spacing));
         const barHeight = (d.revenue / maxRevenue) * chartHeight;
         const y = height - padding - barHeight;
@@ -1043,7 +1033,6 @@ function renderRevenueSVGChart(bills, rangeType) {
 // ==========================================
 let editingProductCode = null;
 
-// Dynamic sizes grid helpers
 function addSizeRow(size = '', price = '', stock = '') {
     const list = document.getElementById('product-sizes-list');
     const row = document.createElement('div');
@@ -1063,13 +1052,13 @@ function removeSizeRow(btn) {
 }
 
 async function renderInventoryList() {
-    const products = await getAllProducts();
+    const products = await getAllProducts() || [];
     const query = document.getElementById('inventory-search').value.toLowerCase().trim();
 
-    const filtered = products.filter(p => 
-        p.code.toLowerCase().includes(query) || 
-        p.name.toLowerCase().includes(query) ||
-        p.category.toLowerCase().includes(query)
+    const filtered = (products || []).filter(p => 
+        (p.code || '').toLowerCase().includes(query) || 
+        (p.name || '').toLowerCase().includes(query) ||
+        (p.category || '').toLowerCase().includes(query)
     );
 
     const tbody = document.getElementById('inventory-tbody');
@@ -1078,9 +1067,9 @@ async function renderInventoryList() {
         return;
     }
 
-    tbody.innerHTML = filtered.map(p => {
-        // Compile sizes output html
-        const sizesHtml = p.sizes.map(s => `
+    tbody.innerHTML = (filtered || []).map(p => {
+        const sizesList = p.sizes || [];
+        const sizesHtml = (sizesList || []).map(s => `
             <div style="margin-bottom: 2px; font-size: 0.8rem;">
                 <span class="size-badge">${s.size}</span> 
                 <strong>₹${s.price}</strong> 
@@ -1111,13 +1100,11 @@ function openProductAddModal() {
     editingProductCode = null;
     document.getElementById('product-modal-title').innerText = 'Add New Product';
     
-    // Clear form
     document.getElementById('prod-code').value = '';
     document.getElementById('prod-code').disabled = false;
     document.getElementById('prod-name').value = '';
     document.getElementById('prod-category').value = '';
     
-    // Clear sizes list and add single empty row
     document.getElementById('product-sizes-list').innerHTML = '';
     addSizeRow('', '', '');
     
@@ -1131,16 +1118,14 @@ async function openProductEditModal(code) {
     editingProductCode = code;
     document.getElementById('product-modal-title').innerText = 'Edit Product';
     
-    // Fill basic details
     document.getElementById('prod-code').value = product.code;
     document.getElementById('prod-code').disabled = true;
     document.getElementById('prod-name').value = product.name;
     document.getElementById('prod-category').value = product.category;
 
-    // Load sizes list
     const container = document.getElementById('product-sizes-list');
     container.innerHTML = '';
-    product.sizes.forEach(s => {
+    (product.sizes || []).forEach(s => {
         addSizeRow(s.size, s.price, s.stock);
     });
 
@@ -1164,12 +1149,11 @@ async function handleSaveProduct(event) {
         return;
     }
 
-    // Collect sizes grid
     const sizeRows = document.querySelectorAll('.size-row');
     const sizes = [];
     let sizeValidationFailed = false;
 
-    sizeRows.forEach(row => {
+    (sizeRows || []).forEach(row => {
         const sizeVal = row.querySelector('.size-input').value.trim();
         const priceVal = parseFloat(row.querySelector('.price-input').value);
         const stockVal = parseInt(row.querySelector('.stock-input').value);
@@ -1192,7 +1176,6 @@ async function handleSaveProduct(event) {
         return;
     }
 
-    // Check duplicate code if new
     if (editingProductCode === null) {
         const existing = await getProduct(code);
         if (existing) {
@@ -1229,12 +1212,12 @@ async function handleDeleteProduct(code) {
 // ADMIN: BILLS HISTORY TAB
 // ==========================================
 async function renderBillsList() {
-    const bills = await getAllBills();
+    const bills = await getAllBills() || [];
     const query = document.getElementById('bills-search').value.toLowerCase().trim();
 
-    const filtered = bills.filter(b => 
-        b.id.toLowerCase().includes(query) || 
-        b.date.includes(query)
+    const filtered = (bills || []).filter(b => 
+        (b.id || '').toLowerCase().includes(query) || 
+        (b.date || '').includes(query)
     );
 
     const tbody = document.getElementById('bills-tbody');
@@ -1243,11 +1226,11 @@ async function renderBillsList() {
         return;
     }
 
-    tbody.innerHTML = filtered.map(b => `
+    tbody.innerHTML = (filtered || []).map(b => `
         <tr>
             <td class="font-medium">${b.id}</td>
             <td>${b.date} <span class="text-muted text-sm">${b.time}</span></td>
-            <td class="text-center font-medium">${b.items.length} items (${b.paymentMode})</td>
+            <td class="text-center font-medium">${(b.items || []).length} items (${b.paymentMode})</td>
             <td class="text-right font-medium">₹${b.grandTotal.toFixed(2)}</td>
             <td class="text-center">
                 <div class="actions-group">
@@ -1297,13 +1280,13 @@ async function confirmDeleteBill() {
 // ADMIN: SETTINGS TAB
 // ==========================================
 async function loadSettingsTab() {
-    const logs = await getAuditLogs();
+    const logs = await getAuditLogs() || [];
     const logTbody = document.getElementById('audit-logs-tbody');
 
     if (logs.length === 0) {
         logTbody.innerHTML = '<tr><td colspan="3" class="text-center pad-y-sm text-muted">No actions recorded.</td></tr>';
     } else {
-        logTbody.innerHTML = logs.slice(0, 25).map(l => {
+        logTbody.innerHTML = (logs.slice(0, 25) || []).map(l => {
             const date = new Date(l.timestamp);
             const formattedDate = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
             return `
@@ -1436,9 +1419,9 @@ function setupEventListeners() {
     });
 
     // Payment Mode Segment Toggle Selection
-    document.querySelectorAll('.btn-toggle-pay').forEach(btn => {
+    (document.querySelectorAll('.btn-toggle-pay') || []).forEach(btn => {
         btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.btn-toggle-pay').forEach(x => x.classList.remove('active'));
+            (document.querySelectorAll('.btn-toggle-pay') || []).forEach(x => x.classList.remove('active'));
             const targetBtn = e.target.closest('.btn-toggle-pay');
             targetBtn.classList.add('active');
             state.paymentMode = targetBtn.dataset.mode;
@@ -1461,14 +1444,14 @@ function setupEventListeners() {
     document.getElementById('btn-print-receipt').addEventListener('click', printActiveReceipt);
 
     // Admin Tabs Swaps
-    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+    (document.querySelectorAll('.admin-tab-btn') || []).forEach(btn => {
         btn.addEventListener('click', (e) => {
             switchAdminTab(e.target.dataset.tab);
         });
     });
 
     // Analytics Filters
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    (document.querySelectorAll('.filter-btn') || []).forEach(btn => {
         btn.addEventListener('click', (e) => {
             loadAnalytics(e.target.dataset.range);
         });

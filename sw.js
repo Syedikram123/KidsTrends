@@ -1,6 +1,6 @@
-// KID'S TRENDS POS - PWA SERVICE WORKER
+// KID'S TRENDS POS - PWA SERVICE WORKER (VERSION 2)
 
-const CACHE_NAME = 'kids-trends-pos-cache-v1';
+const CACHE_NAME = 'kids-trends-pos-cache-v2';
 
 // Assets to cache for 100% offline usage
 const ASSETS = [

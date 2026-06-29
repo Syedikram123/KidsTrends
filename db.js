@@ -127,11 +127,35 @@ async function getAuditLogs() {
 // PRODUCT OPERATIONS
 // ==========================================
 
+/**
+ * Sanitizes a product object to ensure it has a valid sizes array.
+ * Migrates legacy products (Phase 1) with root-level price/stock to new schema.
+ */
+function sanitizeProduct(p) {
+    if (!p) return null;
+    if (!p.sizes || !Array.isArray(p.sizes)) {
+        p.sizes = [];
+        // Legacy products had root level price and stock
+        if (p.price !== undefined && p.stock !== undefined) {
+            p.sizes.push({
+                size: 'Standard',
+                price: parseFloat(p.price) || 0,
+                stock: parseInt(p.stock) || 0
+            });
+        }
+    }
+    return p;
+}
+
 async function getAllProducts() {
     const store = await getStore('products', 'readonly');
     return new Promise((resolve, reject) => {
         const request = store.getAll();
-        request.onsuccess = () => resolve(request.result || []);
+        request.onsuccess = () => {
+            const list = request.result || [];
+            list.forEach(p => sanitizeProduct(p));
+            resolve(list);
+        };
         request.onerror = () => reject(request.error);
     });
 }
@@ -140,22 +164,24 @@ async function getProduct(code) {
     const store = await getStore('products', 'readonly');
     return new Promise((resolve, reject) => {
         const request = store.get(code);
-        request.onsuccess = () => resolve(request.result || null);
+        request.onsuccess = () => {
+            const p = request.result;
+            resolve(p ? sanitizeProduct(p) : null);
+        };
         request.onerror = () => reject(request.error);
     });
 }
 
 /**
- * Saves a product record. If product exists, we merge history.
+ * Saves a product record.
  */
 async function saveProduct(product) {
     const existing = await getProduct(product.code);
     const now = new Date().toISOString();
     
-    // Structure of product includes: code, name, category, sizes list [{size, price, stock}], createdDate, updatedDate
     const finalProduct = {
         ...product,
-        sizes: product.sizes.map(s => ({
+        sizes: (product.sizes || []).map(s => ({
             size: String(s.size).trim(),
             price: parseFloat(s.price) || 0,
             stock: parseInt(s.stock) || 0
@@ -169,7 +195,7 @@ async function saveProduct(product) {
         const request = store.put(finalProduct);
         request.onsuccess = () => {
             const action = existing ? 'Product Updated' : 'Product Added';
-            logActivity(action, `${product.code} - ${product.name} (Sizes Count: ${product.sizes.length})`);
+            logActivity(action, `${product.code} - ${product.name} (Sizes Count: ${finalProduct.sizes.length})`);
             resolve(true);
         };
         request.onerror = () => reject(request.error);
@@ -220,7 +246,7 @@ async function createBill(cartItems, discountInfo, paymentMode) {
         const DD = String(now.getDate()).padStart(2, '0');
         const MM = String(now.getMonth() + 1).padStart(2, '0');
         const YY = String(now.getFullYear()).slice(-2);
-        const dateKey = `${DD}${MM}${YY}`; // e.g. "290626"
+        const dateKey = `${DD}${MM}${YY}`;
 
         // 1. Fetch sequence number and last billing date in parallel
         const dateReq = settingsStore.get('last_bill_date');
@@ -254,12 +280,15 @@ async function createBill(cartItems, discountInfo, paymentMode) {
 
                 gets.forEach(g => {
                     g.request.onsuccess = () => {
-                        const dbProduct = g.request.result;
+                        let dbProduct = g.request.result;
                         if (!dbProduct) {
                             transaction.abort();
                             reject(new Error(`Product not found: ${g.item.name} (${g.item.code})`));
                             return;
                         }
+
+                        // Ensure product object has valid sizes array (sanitize)
+                        dbProduct = sanitizeProduct(dbProduct);
 
                         // Locate size object
                         const sizeObj = dbProduct.sizes.find(s => s.size === String(g.item.size).trim());
@@ -279,7 +308,6 @@ async function createBill(cartItems, discountInfo, paymentMode) {
                         sizeObj.stock -= g.item.qty;
                         dbProduct.updatedDate = new Date().toISOString();
                         
-                        // We must ensure we don't push duplicates of the same product, just modify existing in list
                         const existingInUpdate = productsToUpdate.find(p => p.code === dbProduct.code);
                         if (!existingInUpdate) {
                             productsToUpdate.push(dbProduct);
@@ -287,7 +315,6 @@ async function createBill(cartItems, discountInfo, paymentMode) {
 
                         completedCount++;
                         
-                        // Once all product stock gets are finished and verified
                         if (completedCount === gets.length) {
                             // 3. Write product updates back to database
                             productsToUpdate.forEach(p => productsStore.put(p));
@@ -374,6 +401,17 @@ async function createBill(cartItems, discountInfo, paymentMode) {
 }
 
 /**
+ * Sanitizes a bill object to make sure its items array exists.
+ */
+function sanitizeBill(b) {
+    if (!b) return null;
+    if (!b.items || !Array.isArray(b.items)) {
+        b.items = [];
+    }
+    return b;
+}
+
+/**
  * Returns all bills.
  */
 async function getAllBills() {
@@ -382,6 +420,7 @@ async function getAllBills() {
         const request = store.getAll();
         request.onsuccess = () => {
             const bills = request.result || [];
+            bills.forEach(b => sanitizeBill(b));
             bills.sort((a, b) => b.dateTimestamp - a.dateTimestamp);
             resolve(bills);
         };
@@ -396,7 +435,10 @@ async function getBill(id) {
     const store = await getStore('bills', 'readonly');
     return new Promise((resolve, reject) => {
         const request = store.get(id);
-        request.onsuccess = () => resolve(request.result || null);
+        request.onsuccess = () => {
+            const b = request.result;
+            resolve(b ? sanitizeBill(b) : null);
+        };
         request.onerror = () => reject(request.error);
     });
 }
@@ -424,12 +466,14 @@ async function deleteBill(billId, reason) {
         const billReq = billsStore.get(billId);
         
         billReq.onsuccess = () => {
-            const bill = billReq.result;
+            let bill = billReq.result;
             if (!bill) {
                 transaction.abort();
                 reject(new Error('Bill not found'));
                 return;
             }
+
+            bill = sanitizeBill(bill);
 
             // 2. Schedule product fetches synchronously to restore stock sizes
             const gets = bill.items.map(item => ({
@@ -442,8 +486,9 @@ async function deleteBill(billId, reason) {
 
             gets.forEach(g => {
                 g.request.onsuccess = () => {
-                    const product = g.request.result;
+                    let product = g.request.result;
                     if (product) {
+                        product = sanitizeProduct(product);
                         const sizeObj = product.sizes.find(s => s.size === String(g.item.size).trim());
                         if (sizeObj) {
                             sizeObj.stock += g.item.qty;
@@ -459,7 +504,7 @@ async function deleteBill(billId, reason) {
                     completedCount++;
                     
                     if (completedCount === gets.length) {
-                        // All product records retrieved. Write updates back.
+                        // All product stock records retrieved. Write updates back.
                         productsToRestore.forEach(p => productsStore.put(p));
 
                         // Move bill to deleted_bills
@@ -477,7 +522,7 @@ async function deleteBill(billId, reason) {
                         logsStore.add({
                             timestamp: new Date().toISOString(),
                             action: 'Bill Deleted',
-                            details: `${billId} - Reason: ${reason} (Restored stock sizes)`
+                            details: `${billId} - Reason: ${reason} (Restored stock)`
                         });
 
                         transaction.oncomplete = () => {
@@ -506,6 +551,7 @@ async function getDeletedBills() {
         const request = store.getAll();
         request.onsuccess = () => {
             const list = request.result || [];
+            list.forEach(b => sanitizeBill(b));
             list.sort((a, b) => new Date(b.deletedTimestamp) - new Date(a.deletedTimestamp));
             resolve(list);
         };
