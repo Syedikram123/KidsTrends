@@ -414,89 +414,14 @@ function showReceiptModal(bill) {
     state.activeBill = bill;
     state.activeBillSource = state.currentSection;
     
-    const billItems = bill.items || [];
+    // Generate receipt via canvas and convert to PNG data URL
+    const canvas = generateReceiptCanvas(bill);
+    const dataUrl = canvas.toDataURL('image/png');
     
-    const receiptHtml = `
-<div class="receipt-header">
-    <h2>KID'S TRENDS</h2>
-    <div class="receipt-sub">A Complete Kids Wear Collection</div>
-    <div>Near Siddiq Shah Taleem</div>
-    <div>Choubara Road, Bidar</div>
-    <div><strong>GSTIN:</strong> 29EEIPA4380H1ZE</div>
-    <div>Phone: 8431520625, 8453554561</div>
-</div>
-<hr class="receipt-divider">
-<div class="receipt-meta">
-    <div><strong>Bill No:</strong> ${bill.id}</div>
-    <div><strong>Date:</strong> ${bill.date}</div>
-    <div><strong>Time:</strong> ${bill.time}</div>
-    ${bill.customerMobile ? `<div><strong>Customer Mobile Number:</strong> ${bill.customerMobile}</div>` : ''}
-</div>
-<hr class="receipt-divider">
-<table class="receipt-table">
-    <thead>
-        <tr>
-            <th class="text-left" style="width: 45%;">ITEM</th>
-            <th class="text-center" style="width: 15%;">QTY</th>
-            <th class="text-right" style="width: 20%;">RATE</th>
-            <th class="text-right" style="width: 20%;">TOTAL</th>
-        </tr>
-    </thead>
-    <tbody>
-        ${(billItems || []).map(item => `
-            <tr>
-                <td class="text-left">${item.name}-${item.size}</td>
-                <td class="text-center">${item.qty}</td>
-                <td class="text-right">₹${Math.round(item.price)}</td>
-                <td class="text-right">₹${Math.round(item.total)}</td>
-            </tr>
-        `).join('')}
-    </tbody>
-</table>
-<hr class="receipt-divider">
-<div class="receipt-totals">
-    <div class="receipt-total-row">
-        <span>Subtotal:</span>
-        <span>₹${bill.subtotal.toFixed(2)}</span>
-    </div>
-    
-    ${bill.discountAmount > 0 ? `
-    <div class="receipt-total-row">
-        <span>Discount:</span>
-        <span>₹${bill.discountAmount.toFixed(2)}</span>
-    </div>
-    ` : ''}
-    
-    <hr class="receipt-divider">
-    <div class="receipt-total-row grand-total" style="font-weight: bold; font-size: 1.1rem; margin-top: 4px;">
-        <span>Grand Total:</span>
-        <span>₹${bill.grandTotal.toFixed(2)}</span>
-    </div>
-    <div style="font-size: 0.75rem; text-align: right; font-style: italic; margin-bottom: 6px;">
-        (Including of all Taxes)
-    </div>
-</div>
-<hr class="receipt-divider">
-<div class="receipt-total-row">
-    <span>Amount Paid:</span>
-    <strong>${bill.paymentMode}</strong>
-</div>
-<hr class="receipt-divider">
-<div class="receipt-policy">
-    8-Day Replacement Only (No Return)
-</div>
-<hr class="receipt-divider">
-<div class="receipt-footer">
-    THANK YOU - VISIT AGAIN
-</div>
-<div class="receipt-branding">
-    Software By <a href="http://www.scangrow.in" target="_blank" style="color: inherit; text-decoration: underline;">www.scangrow.in</a><br>
-    No. 8951337609
-</div>
-    `;
+    const receiptImageHtml = `<img src="${dataUrl}" alt="Receipt" style="width: 100%; height: auto; display: block; margin: 0 auto;" />`;
 
-    document.getElementById('receipt-modal-body').innerHTML = receiptHtml;
-    document.getElementById('receipt-print-area').innerHTML = receiptHtml;
+    document.getElementById('receipt-modal-body').innerHTML = receiptImageHtml;
+    document.getElementById('receipt-print-area').innerHTML = receiptImageHtml;
     document.getElementById('receipt-modal').style.display = 'flex';
 }
 
