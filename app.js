@@ -379,6 +379,7 @@ async function handleCheckout() {
         state.cart = [];
         resetBillingInputs();
         showReceiptModal(billRecord);
+        downloadBillImage(billRecord);
         
     } catch (err) {
         showToast(err.message, 'error');
@@ -1248,10 +1249,24 @@ async function renderBillsList() {
     const bills = await getAllBills() || [];
     const query = document.getElementById('bills-search').value.toLowerCase().trim();
 
-    const filtered = (bills || []).filter(b => 
-        (b.id || '').toLowerCase().includes(query) || 
-        (b.date || '').includes(query)
-    );
+    let filtered = [];
+    const numericQuery = query.replace(/\D/g, '');
+
+    // Check if the query is a 10-digit mobile number
+    if (numericQuery.length === 10 && /^\d+$/.test(query.trim())) {
+        filtered = (bills || []).filter(b => {
+            const cleanMobile = (b.customerMobile || '').replace(/\D/g, '');
+            return cleanMobile.slice(-10) === numericQuery;
+        });
+    } else {
+        filtered = (bills || []).filter(b => 
+            (b.id || '').toLowerCase().includes(query) || 
+            (b.date || '').includes(query)
+        );
+    }
+
+    // Sort matching results by dateTimestamp (Latest -> Oldest)
+    filtered.sort((a, b) => b.dateTimestamp - a.dateTimestamp);
 
     const tbody = document.getElementById('bills-tbody');
     if (filtered.length === 0) {
@@ -1621,95 +1636,134 @@ async function handleWhatsAppShare() {
         }
     }
 
-    showToast("Generating receipt image...", "info");
-    
+    let cleanMobile = mobileNumber.replace(/\D/g, '');
+    if (cleanMobile.length === 10) {
+        cleanMobile = '91' + cleanMobile;
+    }
+
+    const message = `Here is your bill from Kid's Trends (Bill No: ${bill.id})`;
+    const whatsappUrl = `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
+
+    // Open WhatsApp chat synchronously to avoid popup blocker
+    window.open(whatsappUrl, '_blank');
+
+    // Attempt to copy image to clipboard in the background as a fallback helper
     try {
         const canvas = generateReceiptCanvas(bill);
         canvas.toBlob(async (blob) => {
-            if (!blob) {
-                showToast("Failed to generate image.", "error");
-                return;
-            }
-
-            let formattedMobile = mobileNumber;
-            if (!formattedMobile.startsWith('91') && formattedMobile.length === 10) {
-                formattedMobile = '91' + formattedMobile;
-            }
-
-            const whatsappUrl = `https://wa.me/${formattedMobile}`;
-            const file = new File([blob], `bill_${bill.id}.png`, { type: 'image/png' });
-            let shared = false;
-
-            if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-                try {
-                    await navigator.share({
-                        files: [file],
-                        title: `Kid's Trends Bill ${bill.id}`,
-                        text: `Here is your bill from Kid's Trends (Bill No: ${bill.id}).`
-                    });
-                    shared = true;
-                    showToast("Shared successfully!", "success");
-                } catch (shareErr) {
-                    console.log("Web Share failed: ", shareErr);
-                }
-            }
-
-            if (!shared) {
+            if (blob) {
                 try {
                     await navigator.clipboard.write([
                         new ClipboardItem({ 'image/png': blob })
                     ]);
-                    showToast("Receipt copied to clipboard! Paste it (Ctrl+V) in WhatsApp.", "success");
+                    console.log("Receipt copied to clipboard.");
                 } catch (clipErr) {
                     console.warn("Clipboard copy failed: ", clipErr);
-                    showToast("Open WhatsApp and attach the bill image.", "info");
                 }
-                
-                window.open(whatsappUrl, '_blank');
             }
         }, 'image/png');
     } catch (err) {
-        showToast("Error sharing: " + err.message, "error");
+        console.error("Failed to copy image to clipboard in background:", err);
+    }
+}
+
+function downloadBillImage(bill) {
+    try {
+        const canvas = generateReceiptCanvas(bill);
+        const dataUrl = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = `bill_${bill.id}.png`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (err) {
+        console.error("Failed to auto-download bill image:", err);
     }
 }
 
 function generateReceiptCanvas(bill) {
+    const items = bill.items || [];
+    const scale = 3; // 3x scaling for crystal-clear HD resolution
+    const logicalWidth = 380;
+    
+    // Dynamically calculate logical height by tracing all canvas content vertical spaces
+    let tempY = 30;
+    tempY += 20; // KID'S TRENDS
+    tempY += 16; // A Complete Kids Wear Collection
+    tempY += 16; // Near Siddiq Shah Taleem
+    tempY += 16; // Choubara Road, Bidar
+    tempY += 16; // GSTIN
+    tempY += 16; // Phone
+    tempY += 12; // divider
+    tempY += 18; // Bill No
+    tempY += 16; // Date
+    tempY += 16; // Time
+    if (bill.customerMobile) {
+        tempY += 16; // Customer Mobile
+    }
+    tempY += 12; // divider
+    tempY += 18; // Headers
+    tempY += 10; // divider
+    
+    items.forEach(() => {
+        tempY += 20; // each item
+    });
+    
+    tempY += 12; // divider
+    tempY += 18; // Subtotal
+    if (bill.discountAmount > 0) {
+        tempY += 18; // Discount
+    }
+    tempY += 8;  // divider
+    tempY += 20; // Grand Total
+    tempY += 14; // Inclusive of all Taxes
+    tempY += 8;  // divider
+    tempY += 18; // Amount Paid
+    tempY += 8;  // divider
+    tempY += 20; // 8-Day Replacement Only (No Return)
+    tempY += 20; // THANK YOU - VISIT AGAIN
+    tempY += 20; // Software By www.scangrow.in
+    tempY += 14; // No.
+    
+    // Add extra padding at the bottom to ensure no cropping occurs
+    tempY += 25; 
+    
+    const logicalHeight = tempY;
+    
     const canvas = document.createElement('canvas');
+    canvas.width = logicalWidth * scale;
+    canvas.height = logicalHeight * scale;
+    
     const ctx = canvas.getContext('2d');
     
-    const items = bill.items || [];
-    const width = 380;
-    let height = 340;
-    height += items.length * 30;
-    if (bill.customerMobile) height += 20;
-    if (bill.discountAmount > 0) height += 20;
+    // Scale drawings to produce high resolution output
+    ctx.scale(scale, scale);
     
-    canvas.width = width;
-    canvas.height = height;
-    
+    // White background
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, logicalWidth, logicalHeight);
     
     ctx.fillStyle = '#000000';
     ctx.font = 'bold 20px monospace';
     ctx.textAlign = 'center';
     
     let y = 30;
-    ctx.fillText("KID'S TRENDS", width / 2, y);
+    ctx.fillText("KID'S TRENDS", logicalWidth / 2, y);
     ctx.font = '12px monospace';
     y += 20;
-    ctx.fillText("A Complete Kids Wear Collection", width / 2, y);
+    ctx.fillText("A Complete Kids Wear Collection", logicalWidth / 2, y);
     y += 16;
-    ctx.fillText("Near Siddiq Shah Taleem", width / 2, y);
+    ctx.fillText("Near Siddiq Shah Taleem", logicalWidth / 2, y);
     y += 16;
-    ctx.fillText("Choubara Road, Bidar", width / 2, y);
+    ctx.fillText("Choubara Road, Bidar", logicalWidth / 2, y);
     y += 16;
-    ctx.fillText("GSTIN: 29EEIPA4380H1ZE", width / 2, y);
+    ctx.fillText("GSTIN: 29EEIPA4380H1ZE", logicalWidth / 2, y);
     y += 16;
-    ctx.fillText("Phone: 8431520625, 8453554561", width / 2, y);
+    ctx.fillText("Phone: 8431520625, 8453554561", logicalWidth / 2, y);
     
     y += 12;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     ctx.textAlign = 'left';
     ctx.font = '12px monospace';
@@ -1725,7 +1779,7 @@ function generateReceiptCanvas(bill) {
     }
     
     y += 12;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     y += 18;
     ctx.font = 'bold 12px monospace';
@@ -1737,7 +1791,7 @@ function generateReceiptCanvas(bill) {
     ctx.fillText("TOTAL", 365, y);
     
     y += 10;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     ctx.font = '12px monospace';
     items.forEach(item => {
@@ -1756,7 +1810,7 @@ function generateReceiptCanvas(bill) {
     });
     
     y += 12;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     ctx.textAlign = 'left';
     y += 18;
@@ -1773,7 +1827,7 @@ function generateReceiptCanvas(bill) {
     }
     
     y += 8;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     y += 20;
     ctx.font = 'bold 14px monospace';
@@ -1787,7 +1841,7 @@ function generateReceiptCanvas(bill) {
     ctx.fillText("(Inclusive of all Taxes)", 365, y);
     
     y += 8;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     y += 18;
     ctx.font = '12px monospace';
@@ -1798,23 +1852,23 @@ function generateReceiptCanvas(bill) {
     ctx.fillText(bill.paymentMode, 365, y);
     
     y += 8;
-    drawCanvasDivider(ctx, 10, width - 10, y);
+    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
     
     y += 20;
     ctx.font = 'bold 11px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText("8-Day Replacement Only (No Return)", width / 2, y);
+    ctx.fillText("8-Day Replacement Only (No Return)", logicalWidth / 2, y);
     
     y += 20;
     ctx.font = 'bold 12px monospace';
-    ctx.fillText("THANK YOU - VISIT AGAIN", width / 2, y);
+    ctx.fillText("THANK YOU - VISIT AGAIN", logicalWidth / 2, y);
     
     y += 20;
     ctx.font = '10px monospace';
     ctx.fillStyle = '#555555';
-    ctx.fillText("Software By www.scangrow.in", width / 2, y);
+    ctx.fillText("Software By www.scangrow.in", logicalWidth / 2, y);
     y += 14;
-    ctx.fillText("No. 8951337609", width / 2, y);
+    ctx.fillText("No. 8951337609", logicalWidth / 2, y);
     
     return canvas;
 }
