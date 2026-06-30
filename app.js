@@ -1252,18 +1252,19 @@ async function renderBillsList() {
     let filtered = [];
     const numericQuery = query.replace(/\D/g, '');
 
-    // Check if the query is a 10-digit mobile number
-    if (numericQuery.length === 10 && /^\d+$/.test(query.trim())) {
-        filtered = (bills || []).filter(b => {
+    filtered = (bills || []).filter(b => {
+        // Match bill number (partial/exact) or date
+        const matchesBillOrDate = (b.id || '').toLowerCase().includes(query) || (b.date || '').includes(query);
+        
+        // Match customer mobile number if the query is a 10-digit number
+        let matchesMobile = false;
+        if (numericQuery.length === 10 && /^\d+$/.test(query)) {
             const cleanMobile = (b.customerMobile || '').replace(/\D/g, '');
-            return cleanMobile.slice(-10) === numericQuery;
-        });
-    } else {
-        filtered = (bills || []).filter(b => 
-            (b.id || '').toLowerCase().includes(query) || 
-            (b.date || '').includes(query)
-        );
-    }
+            matchesMobile = cleanMobile.slice(-10) === numericQuery;
+        }
+
+        return matchesBillOrDate || matchesMobile;
+    });
 
     // Sort matching results by dateTimestamp (Latest -> Oldest)
     filtered.sort((a, b) => b.dateTimestamp - a.dateTimestamp);
