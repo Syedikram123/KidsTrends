@@ -1256,11 +1256,12 @@ async function renderBillsList() {
         // Match bill number (partial/exact) or date
         const matchesBillOrDate = (b.id || '').toLowerCase().includes(query) || (b.date || '').includes(query);
         
-        // Match customer mobile number if the query is a 10-digit number
+        // Match customer mobile number if the query has at least 10 digits
         let matchesMobile = false;
-        if (numericQuery.length === 10 && /^\d+$/.test(query)) {
+        if (numericQuery.length >= 10) {
             const cleanMobile = (b.customerMobile || '').replace(/\D/g, '');
-            matchesMobile = cleanMobile.slice(-10) === numericQuery;
+            const last10Query = numericQuery.slice(-10);
+            matchesMobile = cleanMobile.slice(-10) === last10Query;
         }
 
         return matchesBillOrDate || matchesMobile;
