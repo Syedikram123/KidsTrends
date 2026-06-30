@@ -1272,7 +1272,7 @@ async function renderBillsList() {
 
     const tbody = document.getElementById('bills-tbody');
     if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center pad-y-md text-muted">No matching transactions found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center pad-y-md text-muted">No matching transactions found.</td></tr>';
         return;
     }
 
@@ -1280,6 +1280,7 @@ async function renderBillsList() {
         <tr>
             <td class="font-medium">${b.id}</td>
             <td>${b.date} <span class="text-muted text-sm">${b.time}</span></td>
+            <td>${b.customerMobile || '-'}</td>
             <td class="text-center font-medium">${(b.items || []).length} items (${b.paymentMode})</td>
             <td class="text-right font-medium">₹${b.grandTotal.toFixed(2)}</td>
             <td class="text-center">
