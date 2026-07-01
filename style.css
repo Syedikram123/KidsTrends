@@ -1359,79 +1359,82 @@ header {
 /* Screen modal receipt preview style */
 .receipt-preview {
     font-family: monospace;
-    font-size: 0.95rem;   /* was 0.85rem */
+    font-size: 0.85rem;
     color: #000;
-    background: #fff;
-    padding: 18px;
+    background-color: #fff;
+    padding: 16px;
     border-radius: 8px;
     border: 1px dashed #ccc;
-    box-shadow: inset 0 2px 8px rgba(0,0,0,.05);
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.receipt-header {
+    text-align: center;
+    margin-bottom: 12px;
 }
 
 .receipt-header h2 {
-    font-size: 1.45rem;   /* was 1.25rem */
+    font-size: 1.25rem;
     font-weight: 800;
     letter-spacing: 1px;
 }
 
 .receipt-sub {
-    font-size: 0.9rem;    /* was 0.75rem */
+    font-size: 0.75rem;
+    font-style: italic;
     margin-bottom: 4px;
 }
 
+.receipt-divider {
+    border: none;
+    border-top: 1px dashed #000;
+    margin: 8px 0;
+}
+
 .receipt-meta {
-    font-size: 0.92rem;   /* was 0.8rem */
-    margin-bottom: 10px;
+    font-size: 0.8rem;
+    margin-bottom: 8px;
 }
 
 .receipt-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.92rem;   /* was 0.8rem */
+    font-size: 0.8rem;
 }
 
 .receipt-table th {
-    font-size: 0.95rem;
     border-bottom: 1px dashed #000;
-    padding-bottom: 5px;
+    padding-bottom: 4px;
     font-weight: 700;
 }
 
 .receipt-table td {
-    padding: 5px 0;
+    padding: 4px 0;
+    vertical-align: top;
 }
 
 .receipt-totals {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    font-size: 0.92rem;   /* was 0.8rem */
+    gap: 2px;
+    font-size: 0.8rem;
+}
+
+.receipt-total-row {
+    display: flex;
+    justify-content: space-between;
 }
 
 .receipt-total-row.grand-total {
-    font-size: 1.15rem;   /* was 1rem */
+    font-size: 1rem;
     font-weight: 800;
 }
 
 .receipt-footer {
     text-align: center;
-    margin-top: 14px;
+    margin-top: 12px;
     font-weight: 700;
-    font-size: 0.92rem;   /* was 0.8rem */
-}
-
-.receipt-policy {
-    text-align: center;
-    margin-top: 10px;
-    font-weight: 700;
-    font-size: 0.9rem;    /* was 0.8rem */
-}
-
-.receipt-branding {
-    text-align: center;
-    margin-top: 8px;
-    font-size: 0.8rem;    /* was 0.7rem */
-    line-height: 1.4;
+    font-size: 0.8rem;
 }
 
 /* Print CSS Media Query */
@@ -1443,11 +1446,16 @@ header {
 
     /* Format receipt area exclusively */
     #receipt-print-area {
-    width: 80mm;
-    padding: 3mm;
-    font-size: 13px;
-    line-height: 1.35;
-}
+        display: block !important;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 80mm; /* standard 80mm thermal width */
+        background: #fff;
+        padding: 4mm;
+        margin: 0;
+        box-sizing: border-box;
+    }
 
     #receipt-print-area img {
         width: 100%;
