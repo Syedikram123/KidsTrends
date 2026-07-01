@@ -427,6 +427,7 @@ function showReceiptModal(bill) {
 
 function closeReceiptModal() {
     document.getElementById('receipt-modal').style.display = 'none';
+    document.getElementById('receipt-modal-body').innerHTML = '';
     document.getElementById('receipt-print-area').innerHTML = '';
     state.activeBill = null;
     if (state.activeBillSource) {
@@ -438,7 +439,13 @@ function closeReceiptModal() {
 }
 
 function printActiveReceipt() {
-    window.print();
+    if (state.activeBill) {
+        const canvas = generateReceiptCanvas(state.activeBill);
+        const dataUrl = canvas.toDataURL('image/png');
+        const receiptImageHtml = `<img src="${dataUrl}" alt="Receipt" style="width: 100%; height: auto; display: block; margin: 0 auto;" />`;
+        document.getElementById('receipt-print-area').innerHTML = receiptImageHtml;
+        window.print();
+    }
 }
 
 // ==========================================
@@ -997,7 +1004,7 @@ function addSizeRow(size = '', price = '', stock = '') {
     const row = document.createElement('div');
     row.className = 'size-row';
     row.innerHTML = `
-        <input type="text" class="input-styled size-input" placeholder="Size (e.g. 12, M)" value="${size}" style="flex: 2; height: 38px;" required>
+        <input type="text" class="input-styled size-input" placeholder="Size" value="${size}" style="flex: 2; height: 38px;" required>
         <input type="number" class="input-styled price-input" placeholder="Price (₹)" min="0.01" step="0.01" value="${price}" style="flex: 2; height: 38px;" required>
         <input type="number" class="input-styled stock-input" placeholder="Stock" min="0" value="${stock}" style="flex: 2; height: 38px;" required>
         <button type="button" class="size-remove-btn" onclick="removeSizeRow(this)">&times;</button>
@@ -1804,7 +1811,7 @@ function generateReceiptCanvas(bill) {
     ctx.fillStyle = '#555555';
     ctx.fillText("Software By www.scangrow.in", logicalWidth / 2, y);
     y += 14;
-    ctx.fillText("No. 8951337609", logicalWidth / 2, y);
+    ctx.fillText("WhatsApp No. 6364369405", logicalWidth / 2, y);
     
     return canvas;
 }

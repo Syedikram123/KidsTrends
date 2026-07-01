@@ -369,6 +369,7 @@ async function createBill(cartItems, discountInfo, paymentMode, customerMobile) 
                             settingsStore.put({ key: 'last_bill_sequence', value: nextSeq });
                             
                             // Save bill record
+                            sanitizeBillForStorage(billRecord);
                             billsStore.add(billRecord);
 
                             // 6. Write to Audit Log
@@ -399,6 +400,34 @@ async function createBill(cartItems, discountInfo, paymentMode, customerMobile) 
         dateReq.onerror = () => { transaction.abort(); reject(dateReq.error); };
         seqReq.onerror = () => { transaction.abort(); reject(seqReq.error); };
     });
+}
+
+/**
+ * Sanitizes a bill object before storing it in IndexedDB by removing any temporary
+ * receipt image/canvas/base64/html properties to optimize storage size.
+ */
+function sanitizeBillForStorage(bill) {
+    if (!bill) return bill;
+    const keysToDelete = [
+        'receipt', 'receiptpng', 'receiptimage', 'receiptcanvas', 
+        'base64', 'base64image', 'receipthtml', 'renderedreceipt',
+        'image', 'canvas', 'png', 'html'
+    ];
+    
+    const cleanObject = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+        for (const key of Object.keys(obj)) {
+            const lowerKey = key.toLowerCase();
+            if (keysToDelete.some(k => lowerKey.includes(k))) {
+                delete obj[key];
+            } else if (typeof obj[key] === 'object') {
+                cleanObject(obj[key]);
+            }
+        }
+    };
+    
+    cleanObject(bill);
+    return bill;
 }
 
 /**
@@ -458,6 +487,7 @@ async function updateBillMobile(billId, mobile) {
             const bill = req.result;
             if (bill) {
                 bill.customerMobile = mobile;
+                sanitizeBillForStorage(bill);
                 const putReq = store.put(bill);
                 putReq.onsuccess = () => resolve(true);
                 putReq.onerror = () => reject(putReq.error);
@@ -539,6 +569,7 @@ async function deleteBill(billId, reason) {
                             deletedTimestamp: new Date().toISOString(),
                             deletionReason: reason || 'N/A'
                         };
+                        sanitizeBillForStorage(deletedRecord);
                         deletedStore.add(deletedRecord);
 
                         // Delete from active bills
@@ -645,6 +676,9 @@ async function restoreBackupJSON(jsonDataString) {
                 const store = transaction.objectStore(storeName);
                 store.clear();
                 for (const item of backupData[storeName]) {
+                    if (storeName === 'bills' || storeName === 'deleted_bills') {
+                        sanitizeBillForStorage(item);
+                    }
                     store.put(item);
                 }
             }

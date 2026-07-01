@@ -21,7 +21,7 @@
     <header>
         <div class="header-brand">
             <h1 class="header-title">KID'S TRENDS</h1>
-            <span class="header-sub">Billing Software By 8951337609</span>
+            <span class="header-sub">Billing Software</span>
         </div>
         <div class="header-status">
             <span id="connection-status" class="status-badge online">Online</span>
@@ -185,7 +185,7 @@
                     <!-- Search Input & Scanner button -->
                     <div class="search-container">
                         <div class="search-input-wrapper">
-                            <input type="text" id="billing-search" class="input-styled" placeholder="Search product name or code (e.g. 101, T-Shirt)..." autocomplete="off">
+                            <input type="text" id="billing-search" class="input-styled" placeholder="Product name or Code" autocomplete="off">
                             <!-- Float Suggestion Box -->
                             <div class="suggestions-box" id="search-suggestions"></div>
                         </div>
@@ -227,14 +227,14 @@
             <div id="admin-login" class="admin-login-layout">
                 <div class="login-card">
                     <div class="login-icon">🔒</div>
-                    <h2 class="login-title">Admin Access Protected</h2>
-                    <p class="login-subtitle">Please enter your administrative password</p>
+                    <h2 class="login-title">Admin Panel</h2>
+                    <p class="login-subtitle">Please enter your password</p>
                     
                     <form id="admin-login-form" class="form-grid" style="margin-top: 16px;">
                         <div class="form-group" style="margin-bottom: 16px;">
                             <input type="password" id="admin-password-input" class="input-styled text-center" style="font-size: 1.25rem; letter-spacing: 2px;" placeholder="••••••••" required autocomplete="current-password">
                         </div>
-                        <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK SYSTEM</button>
+                        <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK</button>
                     </form>
                 </div>
             </div>
@@ -245,7 +245,7 @@
                 <!-- Admin Lock Header -->
                 <div class="admin-header-bar">
                     <h2 class="admin-sec-title">Admin Dashboard</h2>
-                    <button class="btn-secondary" id="btn-lock-admin">Lock Session 🔒</button>
+                    <button class="btn-secondary" id="btn-lock-admin">Lock Panel 🔒</button>
                 </div>
 
                 <!-- Admin Sub Tabs Nav -->
@@ -326,7 +326,7 @@
                 <!-- TAB CONTENT: INVENTORY -->
                 <div id="admin-tab-inventory" class="admin-tab-content">
                     <div class="search-container" style="margin-bottom: 12px;">
-                        <input type="text" id="inventory-search" class="input-styled" placeholder="Search item code or name...">
+                        <input type="text" id="inventory-search" class="input-styled" placeholder="Search item code or name">
                         <button class="btn-primary" id="btn-add-product" style="width: auto; height: 48px; padding: 0 16px;">+ Add Product</button>
                     </div>
 
@@ -352,7 +352,7 @@
                 <!-- TAB CONTENT: BILLS LOG -->
                 <div id="admin-tab-bills" class="admin-tab-content">
                     <div class="search-container" style="margin-bottom: 12px;">
-                        <input type="text" id="bills-search" class="input-styled" placeholder="Search by Bill No. or Mobile Number">
+                        <input type="text" id="bills-search" class="input-styled" placeholder="Search Bill No. or Mobile No.">
                     </div>
 
                     <div class="table-wrapper">
@@ -382,9 +382,9 @@
                         <h3 class="settings-sec-title">Local Database Backup</h3>
                         <p class="text-muted text-sm" style="margin-bottom: 12px;">Export all data (Products, Bills, Settings, Logs) locally as a JSON backup file or restore from a previously exported backup.</p>
                         <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
-                            <button class="btn-secondary" id="btn-export-backup" style="height: 44px;">📥 Export JSON Backup</button>
+                            <button class="btn-secondary" id="btn-export-backup" style="height: 44px;">Export Backup</button>
                             <label class="btn-secondary text-center" style="display: flex; align-items: center; justify-content: center; height: 44px; cursor: pointer;">
-                                📤 Restore JSON
+                                Import Backup
                                 <input type="file" id="backup-import-file" accept=".json" style="display: none;">
                             </label>
                         </div>
@@ -392,7 +392,7 @@
 
                     <!-- Security Change Password code -->
                     <div class="settings-section-card">
-                        <h3 class="settings-sec-title">Change Administrative Password</h3>
+                        <h3 class="settings-sec-title">Change Admin Password</h3>
                         <form id="pin-change-form" class="form-grid">
                             <div class="form-group">
                                 <label for="pin-old">Old Password</label>
@@ -494,9 +494,9 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeReceiptModal()">Close / New Bill</button>
-                <button class="btn-primary btn-whatsapp" id="btn-whatsapp-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">WhatsApp 💬</button>
-                <button class="btn-primary" id="btn-print-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">Print Receipt 🖨️</button>
+                <button class="btn-secondary" onclick="closeReceiptModal()">New Bill</button>
+                <button class="btn-primary btn-whatsapp" id="btn-whatsapp-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">WhatsApp</button>
+                <button class="btn-primary" id="btn-print-receipt" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">Print</button>
             </div>
         </div>
     </div>
@@ -513,16 +513,16 @@
             <form id="product-form">
                 <div class="modal-body form-grid">
                     <div class="form-group">
-                        <label for="prod-code">Product Code (Barcode / ID)</label>
-                        <input type="text" id="prod-code" class="input-styled" style="height: 44px;" placeholder="e.g. 101, 8901012..." required>
+                        <label for="prod-code">Product Code (QR Code - ID)</label>
+                        <input type="text" id="prod-code" class="input-styled" style="height: 44px;" placeholder="e.g. 101" required>
                     </div>
                     <div class="form-group">
                         <label for="prod-name">Product Name</label>
-                        <input type="text" id="prod-name" class="input-styled" style="height: 44px;" placeholder="e.g. Kids Denim Shirt" required>
+                        <input type="text" id="prod-name" class="input-styled" style="height: 44px;" placeholder="e.g. Lollipop Kids Shirt" required>
                     </div>
                     <div class="form-group">
                         <label for="prod-category">Category</label>
-                        <input type="text" id="prod-category" class="input-styled" style="height: 44px;" placeholder="e.g. Boys Wear" required>
+                        <input type="text" id="prod-category" class="input-styled" style="height: 44px;" placeholder="e.g. Boys" required>
                     </div>
                     <div class="form-group" style="margin-top: 8px;">
                         <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);">
@@ -552,9 +552,9 @@
                 <button class="modal-close" id="btn-close-delbill-modal">&times;</button>
             </div>
             <div class="modal-body form-grid">
-                <p class="text-muted text-sm">Deleting this transaction will RESTORE the quantities of the products in the bill. Please state a reason for this deletion for audit logs.</p>
+                <p class="text-muted text-sm">Deleting this bill will add the product quantities back to stock. Please enter the reason for deleting this bill.</p>
                 <div class="form-group" style="margin-top: 8px;">
-                    <label for="delete-reason-input">Reason for Deletion</label>
+                    <label for="delete-reason-input">Why are you deleting this?</label>
                     <input type="text" id="delete-reason-input" class="input-styled" style="height: 44px;" placeholder="e.g. Return, Input error..." required>
                 </div>
             </div>

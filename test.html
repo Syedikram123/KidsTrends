@@ -320,6 +320,57 @@
             assert(loadedBill2Updated.customerMobile === '1234567890', `Expected updated customer mobile 1234567890, got ${loadedBill2Updated.customerMobile}`);
         });
 
+        // Test 7: Verify database performance with 500 products and 500 bills
+        addTest("Verify database performance with 500 products and 500 bills", async () => {
+            dbInstance = testDbInstance;
+
+            // 1. Seed 500 products
+            const products = [];
+            for (let i = 1; i <= 500; i++) {
+                const code = `PROD${String(i).padStart(4, '0')}`;
+                products.push({
+                    code,
+                    name: `Product ${i}`,
+                    category: i % 2 === 0 ? "Shirts" : "Pants",
+                    sizes: [
+                        { size: 'M', price: 100 + (i % 10) * 10, stock: 100 }
+                    ]
+                });
+            }
+            for (const p of products) {
+                await saveProduct(p);
+            }
+
+            // 2. Seed 500 bills
+            for (let i = 1; i <= 500; i++) {
+                const cart = [
+                    { code: `PROD${String((i % 500) + 1).padStart(4, '0')}`, name: `Product ${i}`, size: 'M', price: 100, qty: 1 }
+                ];
+                await createBill(cart, { type: 'none', value: 0 }, 'Cash', '9876543210');
+            }
+
+            // 3. Measure search performance
+            const t0 = performance.now();
+            const allProds = await getAllProducts();
+            const filteredProds = allProds.filter(p => p.name.toLowerCase().includes("product 250"));
+            const t1 = performance.now();
+            const searchTime = t1 - t0;
+            assert(filteredProds.length > 0, "Should find matching product");
+            
+            // 4. Measure Sales History loading/sorting performance
+            const t2 = performance.now();
+            const allBills = await getAllBills();
+            const t3 = performance.now();
+            const billsLoadTime = t3 - t2;
+            assert(allBills.length === 500, `Expected 500 bills, got ${allBills.length}`);
+
+            console.log(`[Performance Metrics] Search time: ${searchTime.toFixed(2)}ms, Bills Load time: ${billsLoadTime.toFixed(2)}ms`);
+            
+            // Assert performance is within acceptable thresholds (e.g. search < 50ms, load bills < 100ms)
+            assert(searchTime < 50, `Search is too slow: ${searchTime.toFixed(2)}ms`);
+            assert(billsLoadTime < 100, `Bills loading is too slow: ${billsLoadTime.toFixed(2)}ms`);
+        });
+
         // Test runner engine
         async function runSuite() {
             const resultsDiv = document.getElementById('test-results');
