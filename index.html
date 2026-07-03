@@ -233,6 +233,9 @@
                     <form id="admin-login-form" class="form-grid" style="margin-top: 16px;">
                         <div class="form-group" style="margin-bottom: 16px;">
                             <input type="password" id="admin-password-input" class="input-styled text-center" style="font-size: 1.25rem; letter-spacing: 2px;" placeholder="••••••••" required autocomplete="current-password">
+                            <div style="text-align: center; margin-top: 8px;">
+                                <a href="#" id="forgot-password-link" style="font-size: 0.85rem; color: var(--accent-primary); text-decoration: none; font-weight: 500; cursor: pointer;">Forgot Password?</a>
+                            </div>
                         </div>
                         <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK</button>
                     </form>
@@ -605,6 +608,43 @@
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary" onclick="closeSizeSelectModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: RESET ADMIN PASSWORD
+       ========================================== -->
+    <div id="reset-password-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 360px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Reset Admin Password</h3>
+                <button type="button" class="modal-close" id="btn-close-reset-modal">&times;</button>
+            </div>
+            <div class="modal-body form-grid">
+                <!-- Step 1: Show a single input labeled "Enter Recovery Code" -->
+                <form id="reset-step-1-form" class="form-grid">
+                    <div class="form-group">
+                        <label for="reset-recovery-input">Enter Recovery Code</label>
+                        <input type="text" id="reset-recovery-input" class="input-styled" placeholder="Enter Recovery Code" required autocomplete="off">
+                        <div id="reset-recovery-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;">Incorrect recovery code.</div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">Continue</button>
+                </form>
+
+                <!-- Step 2: New Password, Confirm New Password, Update Password button -->
+                <form id="reset-step-2-form" class="form-grid" style="display: none;">
+                    <div class="form-group">
+                        <label for="reset-new-password">New Password</label>
+                        <input type="password" id="reset-new-password" class="input-styled" placeholder="••••••••" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="reset-confirm-password">Confirm New Password</label>
+                        <input type="password" id="reset-confirm-password" class="input-styled" placeholder="••••••••" required>
+                        <div id="reset-password-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;"></div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">Update Password</button>
+                </form>
             </div>
         </div>
     </div>

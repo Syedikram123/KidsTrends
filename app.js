@@ -825,6 +825,131 @@ function lockAdmin() {
     renderAdminView();
 }
 
+// ==========================================
+// ADMIN PASSWORD RECOVERY MODAL
+// ==========================================
+function openResetPasswordModal() {
+    // Clear all inputs
+    const recoveryInput = document.getElementById('reset-recovery-input');
+    const newPassInput = document.getElementById('reset-new-password');
+    const confirmPassInput = document.getElementById('reset-confirm-password');
+
+    if (recoveryInput) recoveryInput.value = '';
+    if (newPassInput) newPassInput.value = '';
+    if (confirmPassInput) confirmPassInput.value = '';
+
+    // Hide error messages
+    const recoveryError = document.getElementById('reset-recovery-error');
+    const passwordError = document.getElementById('reset-password-error');
+    if (recoveryError) recoveryError.style.display = 'none';
+    if (passwordError) passwordError.style.display = 'none';
+
+    // Show step 1 and hide step 2
+    const step1Form = document.getElementById('reset-step-1-form');
+    const step2Form = document.getElementById('reset-step-2-form');
+    if (step1Form) step1Form.style.display = 'grid';
+    if (step2Form) step2Form.style.display = 'none';
+
+    // Show modal overlay
+    const modal = document.getElementById('reset-password-modal');
+    if (modal) modal.style.display = 'flex';
+    if (recoveryInput) recoveryInput.focus();
+}
+
+function closeResetPasswordModal() {
+    // Clear all inputs and reset modal back to step 1 before closing
+    const recoveryInput = document.getElementById('reset-recovery-input');
+    const newPassInput = document.getElementById('reset-new-password');
+    const confirmPassInput = document.getElementById('reset-confirm-password');
+
+    if (recoveryInput) recoveryInput.value = '';
+    if (newPassInput) newPassInput.value = '';
+    if (confirmPassInput) confirmPassInput.value = '';
+
+    const recoveryError = document.getElementById('reset-recovery-error');
+    const passwordError = document.getElementById('reset-password-error');
+    if (recoveryError) recoveryError.style.display = 'none';
+    if (passwordError) passwordError.style.display = 'none';
+
+    const step1Form = document.getElementById('reset-step-1-form');
+    const step2Form = document.getElementById('reset-step-2-form');
+    if (step1Form) step1Form.style.display = 'grid';
+    if (step2Form) step2Form.style.display = 'none';
+
+    const modal = document.getElementById('reset-password-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function handleResetStep1Submit(event) {
+    event.preventDefault();
+    const recoveryInput = document.getElementById('reset-recovery-input');
+    const errorDiv = document.getElementById('reset-recovery-error');
+    
+    if (errorDiv) errorDiv.style.display = 'none';
+
+    if (recoveryInput && recoveryInput.value.trim() === 'Recover@1') {
+        // Step 1 correct: replace with step 2
+        const step1Form = document.getElementById('reset-step-1-form');
+        const step2Form = document.getElementById('reset-step-2-form');
+        if (step1Form) step1Form.style.display = 'none';
+        if (step2Form) step2Form.style.display = 'grid';
+        const newPassInput = document.getElementById('reset-new-password');
+        if (newPassInput) newPassInput.focus();
+    } else {
+        // Incorrect recovery code: show error and do not continue
+        if (errorDiv) errorDiv.style.display = 'block';
+    }
+}
+
+async function handleResetStep2Submit(event) {
+    event.preventDefault();
+    const newPassInput = document.getElementById('reset-new-password');
+    const confirmPassInput = document.getElementById('reset-confirm-password');
+    const errorDiv = document.getElementById('reset-password-error');
+
+    if (errorDiv) errorDiv.style.display = 'none';
+
+    const newPass = newPassInput ? newPassInput.value.trim() : '';
+    const confirmPass = confirmPassInput ? confirmPassInput.value.trim() : '';
+
+    // Validate that both passwords match and are not empty
+    if (!newPass || !confirmPass) {
+        if (errorDiv) {
+            errorDiv.innerText = 'Passwords cannot be empty.';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    if (newPass !== confirmPass) {
+        if (errorDiv) {
+            errorDiv.innerText = 'Passwords do not match.';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    try {
+        // Save the new admin password using the same existing password storage method (sha256 and setSetting)
+        const newHash = await sha256(newPass);
+        await setSetting('admin_pin_hash', newHash);
+
+        // Log the activity
+        await logActivity('Admin Password Reset', 'Password reset using recovery code');
+
+        // Show a success message
+        showToast('Password updated successfully.', 'success');
+
+        // Reset the modal back to Step 1 and clear all inputs, then close the modal
+        closeResetPasswordModal();
+    } catch (e) {
+        if (errorDiv) {
+            errorDiv.innerText = 'Failed to reset password: ' + e.message;
+            errorDiv.style.display = 'block';
+        }
+    }
+}
+
 async function sha256(message) {
     const msgBuffer = new TextEncoder().encode(message);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -1437,6 +1562,39 @@ function setupEventListeners() {
     // Admin login password submit listener
     document.getElementById('admin-login-form').addEventListener('submit', handleAdminLoginSubmit);
     document.getElementById('btn-lock-admin').addEventListener('click', lockAdmin);
+
+    // Admin password recovery modal event listeners
+    const forgotPasswordLink = document.getElementById('forgot-password-link');
+    if (forgotPasswordLink) {
+        forgotPasswordLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            openResetPasswordModal();
+        });
+    }
+    
+    const btnCloseResetModal = document.getElementById('btn-close-reset-modal');
+    if (btnCloseResetModal) {
+        btnCloseResetModal.addEventListener('click', closeResetPasswordModal);
+    }
+    
+    const resetModalOverlay = document.getElementById('reset-password-modal');
+    if (resetModalOverlay) {
+        resetModalOverlay.addEventListener('click', (e) => {
+            if (e.target === resetModalOverlay) {
+                closeResetPasswordModal();
+            }
+        });
+    }
+
+    const resetStep1Form = document.getElementById('reset-step-1-form');
+    if (resetStep1Form) {
+        resetStep1Form.addEventListener('submit', handleResetStep1Submit);
+    }
+
+    const resetStep2Form = document.getElementById('reset-step-2-form');
+    if (resetStep2Form) {
+        resetStep2Form.addEventListener('submit', handleResetStep2Submit);
+    }
 
     // Checkout
     document.getElementById('btn-checkout').addEventListener('click', handleCheckout);
