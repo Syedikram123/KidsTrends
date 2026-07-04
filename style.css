@@ -145,10 +145,10 @@ header {
     background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     padding-top: 30px; /* fallback */
-    padding-top: calc(env(safe-area-inset-top) + 20px);
+    padding-top: calc(env(safe-area-inset-top) + 15px);
     padding-left: 20px;
     padding-right: 20px;
-    padding-bottom: 70px;
+    padding-bottom: 15px;
     display: flex;
     align-items: center;
     justify-content: space-between;
