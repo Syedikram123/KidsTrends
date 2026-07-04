@@ -1508,6 +1508,26 @@ header {
     border-color: var(--accent-primary);
 }
 
+.btn-toggle-cashier {
+    flex: 1;
+    height: 32px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 6px;
+    background-color: var(--bg-secondary);
+    color: var(--text-secondary);
+    text-align: center;
+    transition: background-color 0.2s, color 0.2s;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+}
+
+.btn-toggle-cashier.active {
+    background-color: var(--accent-primary);
+    color: #ffffff;
+    border-color: var(--accent-primary);
+}
+
 /* Product Sizes Form List */
 .size-row {
     display: flex;

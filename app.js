@@ -8,6 +8,7 @@ const state = {
     discountType: 'percentage', // 'percentage' | 'fixed'
     discountValue: 0,
     paymentMode: 'Cash',        // 'Cash' | 'UPI'
+    cashier: 'Irfan',           // Default selected cashier
     currentSection: 'home',
     adminUnlocked: false,
     adminTab: 'analytics',
@@ -370,7 +371,7 @@ async function handleCheckout() {
         const billRecord = await createBill(state.cart, {
             type: state.discountType,
             value: state.discountValue
-        }, state.paymentMode, customerMobile);
+        }, state.paymentMode, customerMobile, state.cashier || 'Irfan');
 
         showToast(`Bill ${billRecord.id} generated successfully!`, 'success');
         
@@ -1313,6 +1314,9 @@ async function renderBillsList() {
         // Match bill number (partial/exact) or date
         const matchesBillOrDate = (b.id || '').toLowerCase().includes(query) || (b.date || '').includes(query);
         
+        // Match cashier name (case-insensitive partial/exact)
+        const matchesCashier = (b.cashier || '').toLowerCase().includes(query);
+        
         // Match customer mobile number (partial or full)
         const cleanMobile = (b.customerMobile || '').replace(/\D/g, '');
         let matchesMobile = false;
@@ -1329,7 +1333,7 @@ async function renderBillsList() {
             }
         }
 
-        return matchesBillOrDate || matchesMobile;
+        return matchesBillOrDate || matchesMobile || matchesCashier;
     });
 
     // Sort matching results by dateTimestamp (Latest -> Oldest)
@@ -1552,6 +1556,16 @@ function setupEventListeners() {
             const targetBtn = e.target.closest('.btn-toggle-pay');
             targetBtn.classList.add('active');
             state.paymentMode = targetBtn.dataset.mode;
+        });
+    });
+
+    // Cashier Segment Toggle Selection
+    (document.querySelectorAll('.btn-toggle-cashier') || []).forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            (document.querySelectorAll('.btn-toggle-cashier') || []).forEach(x => x.classList.remove('active'));
+            const targetBtn = e.target.closest('.btn-toggle-cashier');
+            targetBtn.classList.add('active');
+            state.cashier = targetBtn.dataset.cashier;
         });
     });
 
@@ -1800,6 +1814,7 @@ function generateReceiptCanvas(bill) {
     tempY += 18; // Bill No
     tempY += 16; // Date
     tempY += 16; // Time
+    tempY += 16; // Cashier Name
     if (bill.customerMobile) {
         tempY += 16; // Customer Mobile
     }
@@ -1874,6 +1889,8 @@ function generateReceiptCanvas(bill) {
     ctx.fillText(`Date: ${bill.date}`, 15, y);
     y += 16;
     ctx.fillText(`Time: ${bill.time}`, 15, y);
+    y += 16;
+    ctx.fillText(`Cashier: ${bill.cashier || 'Irfan'}`, 15, y);
     if (bill.customerMobile) {
         y += 16;
         ctx.fillText(`Customer Mobile Number: ${bill.customerMobile}`, 15, y);

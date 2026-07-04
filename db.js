@@ -226,7 +226,7 @@ async function deleteProduct(code) {
  * Deducts stock from specific sizes of products.
  * Uses request chaining to avoid microtask yields.
  */
-async function createBill(cartItems, discountInfo, paymentMode, customerMobile) {
+async function createBill(cartItems, discountInfo, paymentMode, customerMobile, cashier) {
     const db = await initDB();
     
     return new Promise((resolve, reject) => {
@@ -361,7 +361,8 @@ async function createBill(cartItems, discountInfo, paymentMode, customerMobile) 
                                 gstAmount: 0,
                                 grandTotal,
                                 paymentMode: paymentMode || 'Cash',
-                                customerMobile: customerMobile || ''
+                                customerMobile: customerMobile || '',
+                                cashier: cashier || 'Irfan'
                             };
 
                             // 5. Save settings counters

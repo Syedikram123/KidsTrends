@@ -320,6 +320,31 @@
             assert(loadedBill2Updated.customerMobile === '1234567890', `Expected updated customer mobile 1234567890, got ${loadedBill2Updated.customerMobile}`);
         });
 
+        // Test 6.5: Verify Cashier Selection storage and defaults
+        addTest("Verify Cashier Selection storage and defaults", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'C601', 
+                name: 'Cashier Shirt', 
+                category: 'Kids Wear', 
+                sizes: [{ size: 'M', price: 120, stock: 10 }] 
+            };
+            await saveProduct(p1);
+
+            const cart = [{ code: 'C601', name: 'Cashier Shirt', size: 'M', price: 120, qty: 1 }];
+            
+            // 1. Create a bill with default cashier (should be Irfan)
+            const billDefaultCashier = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+            const loadedBill1 = await getBill(billDefaultCashier.id);
+            assert(loadedBill1.cashier === 'Irfan', `Expected default cashier to be Irfan, got ${loadedBill1.cashier}`);
+
+            // 2. Create a bill with a custom cashier (e.g. Faizan)
+            const billCustomCashier = await createBill(cart, { type: 'none', value: 0 }, 'Cash', '', 'Faizan');
+            const loadedBill2 = await getBill(billCustomCashier.id);
+            assert(loadedBill2.cashier === 'Faizan', `Expected cashier to be Faizan, got ${loadedBill2.cashier}`);
+        });
+
         // Test 7: Verify database performance with 500 products and 500 bills
         addTest("Verify database performance with 500 products and 500 bills", async () => {
             dbInstance = testDbInstance;
