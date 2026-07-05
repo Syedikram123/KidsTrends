@@ -114,6 +114,10 @@ body {
     padding-bottom: calc(env(safe-area-inset-bottom) + 10px);
 }
 
+main{
+    padding-bottom:calc(90px + env(safe-area-inset-bottom));
+}
+
 input, button, select, textarea {
     font-family: inherit;
     font-size: inherit;
@@ -444,7 +448,7 @@ header {
 .billing-layout {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 140px); /* Fill screen above nav & header */
+    min-height: calc(100vh - 140px); /* Fill screen above nav & header */
     gap: 12px;
 }
 
