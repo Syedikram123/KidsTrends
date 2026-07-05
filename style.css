@@ -115,7 +115,7 @@ body {
 }
 
 main{
-    padding-bottom:calc(90px + env(safe-area-inset-bottom));
+    padding-bottom:calc(64px + env(safe-area-inset-bottom));
 }
 
 input, button, select, textarea {
