@@ -181,13 +181,11 @@
                     <div class="mobile-number-container">
                         <input type="tel" id="customer-mobile" class="input-styled" placeholder="Customer Mobile Number (Optional)" pattern="[0-9]*" inputmode="numeric" maxlength="10">
                     </div>
-                    
+
                     <!-- Cashier Selection -->
                     <div class="payment-mode-group">
-                        <div class="payment-toggle-buttons">
-                            <button type="button" class="btn-toggle-cashier active" data-cashier="Irfan">Irfan</button>
-                            <button type="button" class="btn-toggle-cashier" data-cashier="Faizan">Faizan</button>
-                            <button type="button" class="btn-toggle-cashier" data-cashier="Farhan">Farhan</button>
+                        <div class="payment-toggle-buttons" id="cashier-toggle-container">
+                            <!-- Dynamically loaded Cashiers go here -->
                         </div>
                     </div>
 
@@ -668,6 +666,9 @@
     <script src="jsQR.js"></script>
     <script src="db.js"></script>
     <script src="scanner.js"></script>
+    <script src="NativeBridge.js"></script>
+    <script src="ReceiptManager.js"></script>
+    <script src="BackupManager.js"></script>
     <script src="app.js"></script>
 
     <!-- Theme management initialization script -->

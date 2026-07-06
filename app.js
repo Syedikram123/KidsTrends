@@ -34,10 +34,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!storedPinHash || storedPinHash === '1635c8525afbae58c37bede3c9440844e9143727cc7c160bed665ec378d8a262') {
             await setSetting('admin_pin_hash', DEFAULT_PIN_HASH);
         }
+
+        // Seed default cashiers list if empty
+        const storedCashiers = await getSetting('cashiers');
+        if (!storedCashiers || !Array.isArray(storedCashiers)) {
+            await setSetting('cashiers', ['Irfan', 'Faizan', 'Farhan']);
+        }
         
         // Load products cache (<50ms target)
         await refreshProductsCache();
         
+        // Render Cashiers dynamically
+        await initializeCashiers();
+
         // Initialize UI event handlers
         setupEventListeners();
         switchSection('home');
@@ -47,6 +56,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         showToast('Database Error: ' + err.message, 'error');
     }
 });
+
+/**
+ * Initializes and dynamically renders cashier toggle buttons based on stored settings.
+ */
+async function initializeCashiers() {
+    const cashiersList = await getSetting('cashiers', ['Irfan', 'Faizan', 'Farhan']);
+    state.cashier = cashiersList[0] || 'Irfan'; // Set default cashier in state
+    
+    const container = document.getElementById('cashier-toggle-container');
+    if (container) {
+        container.innerHTML = cashiersList.map((cashier, idx) => `
+            <button type="button" class="btn-toggle-cashier ${idx === 0 ? 'active' : ''}" data-cashier="${cashier}">${cashier}</button>
+        `).join('');
+
+        // Bind click event listeners to the dynamically generated buttons
+        (container.querySelectorAll('.btn-toggle-cashier') || []).forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                (container.querySelectorAll('.btn-toggle-cashier') || []).forEach(x => x.classList.remove('active'));
+                const targetBtn = e.target.closest('.btn-toggle-cashier');
+                targetBtn.classList.add('active');
+                state.cashier = targetBtn.dataset.cashier;
+            });
+        });
+    }
+}
 
 /**
  * Refreshes the memory cache of products for super fast searching.
@@ -367,11 +401,14 @@ async function handleCheckout() {
     const mobileField = document.getElementById('customer-mobile');
     const customerMobile = mobileField ? mobileField.value.trim() : '';
 
+    const notesField = document.getElementById('bill-notes');
+    const billNotes = notesField ? notesField.value.trim() : '';
+
     try {
         const billRecord = await createBill(state.cart, {
             type: state.discountType,
             value: state.discountValue
-        }, state.paymentMode, customerMobile, state.cashier || 'Irfan');
+        }, state.paymentMode, customerMobile, state.cashier || 'Irfan', billNotes);
 
         showToast(`Bill ${billRecord.id} generated successfully!`, 'success');
         
@@ -379,8 +416,14 @@ async function handleCheckout() {
         
         state.cart = [];
         resetBillingInputs();
-        showReceiptModal(billRecord);
-        downloadBillImage(billRecord);
+        
+        // Display modal review receipt
+        ReceiptManager.showReceiptPreview(billRecord);
+        
+        // Automatically download image only when running inside regular browser
+        if (!NativeBridge.isAndroid()) {
+            downloadBillImage(billRecord);
+        }
         
     } catch (err) {
         showToast(err.message, 'error');
@@ -395,6 +438,8 @@ function resetBillingInputs() {
     document.getElementById('billing-search').value = '';
     const mobileField = document.getElementById('customer-mobile');
     if (mobileField) mobileField.value = '';
+    const notesField = document.getElementById('bill-notes');
+    if (notesField) notesField.value = '';
     renderCart();
 }
 
@@ -402,50 +447,12 @@ async function viewBillDetails(billId) {
     try {
         const bill = await getBill(billId);
         if (bill) {
-            showReceiptModal(bill);
+            ReceiptManager.showReceiptPreview(bill);
         } else {
             showToast('Bill not found', 'error');
         }
     } catch (e) {
         showToast('Error loading bill: ' + e.message, 'error');
-    }
-}
-
-function showReceiptModal(bill) {
-    state.activeBill = bill;
-    state.activeBillSource = state.currentSection;
-    
-    // Generate receipt via canvas and convert to PNG data URL
-    const canvas = generateReceiptCanvas(bill);
-    const dataUrl = canvas.toDataURL('image/png');
-    
-    const receiptImageHtml = `<img src="${dataUrl}" alt="Receipt" style="width: 100%; height: auto; display: block; margin: 0 auto;" />`;
-
-    document.getElementById('receipt-modal-body').innerHTML = receiptImageHtml;
-    document.getElementById('receipt-print-area').innerHTML = receiptImageHtml;
-    document.getElementById('receipt-modal').style.display = 'flex';
-}
-
-function closeReceiptModal() {
-    document.getElementById('receipt-modal').style.display = 'none';
-    document.getElementById('receipt-modal-body').innerHTML = '';
-    document.getElementById('receipt-print-area').innerHTML = '';
-    state.activeBill = null;
-    if (state.activeBillSource) {
-        switchSection(state.activeBillSource);
-        state.activeBillSource = null;
-    } else {
-        switchSection('bill');
-    }
-}
-
-function printActiveReceipt() {
-    if (state.activeBill) {
-        const canvas = generateReceiptCanvas(state.activeBill);
-        const dataUrl = canvas.toDataURL('image/png');
-        const receiptImageHtml = `<img src="${dataUrl}" alt="Receipt" style="width: 100%; height: auto; display: block; margin: 0 auto;" />`;
-        document.getElementById('receipt-print-area').innerHTML = receiptImageHtml;
-        window.print();
     }
 }
 
@@ -716,6 +723,11 @@ function closeInsightsModal() {
 // CAMERA QR SCANNER & SIZE SELECTION MODAL
 // ==========================================
 function openScannerOverlay() {
+    // Intercept with Android Native Barcode scanner if available
+    if (NativeBridge.scanBarcode()) {
+        return;
+    }
+
     const scannerModal = document.getElementById('scanner-modal');
     const video = document.getElementById('scanner-video');
     const warning = document.getElementById('scanner-support-warning');
@@ -1420,30 +1432,7 @@ async function loadSettingsTab() {
     }
 }
 
-async function handleExportBackup() {
-    try {
-        const jsonStr = await exportBackupJSON();
-        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `kids_trends_backup_${dateStr}.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        
-        showToast('Backup downloaded successfully', 'success');
-        await logActivity('Backup Exported', 'JSON database backup downloaded');
-    } catch (e) {
-        showToast('Backup failed: ' + e.message, 'error');
-    }
-}
-
-function handleImportBackup(event) {
+function handleBrowserImportBackup(event) {
     const file = event.target.files[0];
     if (!file) return;
 
@@ -1452,7 +1441,7 @@ function handleImportBackup(event) {
         try {
             const result = e.target.result;
             if (confirm('Restoring will overwrite all existing local database entries. Proceed?')) {
-                await restoreBackupJSON(result);
+                await BackupManager.restoreDatabase(result);
                 showToast('Database restored successfully! Reloading...', 'success');
                 setTimeout(() => window.location.reload(), 1500);
             }
@@ -1461,7 +1450,38 @@ function handleImportBackup(event) {
         }
     };
     reader.readAsText(file);
+    event.target.value = ''; // Reset input selection
 }
+
+// ==========================================
+// ANDROID NATIVE CALLBACK INTERFACES
+// ==========================================
+
+/**
+ * Native Android callback invoked when a barcode/QR code has been successfully scanned.
+ */
+window.onBarcodeScanned = function(barcode) {
+    if (barcode) {
+        handleScannedCode(barcode);
+    }
+};
+
+/**
+ * Native Android callback invoked when backup data JSON is fetched from Android storage.
+ */
+window.onImportBackup = async function(backupJsonString) {
+    try {
+        if (confirm('Restoring will overwrite all existing local database entries. Proceed?')) {
+            await BackupManager.restoreDatabase(backupJsonString);
+            showToast('Database restored successfully! Reloading...', 'success');
+            setTimeout(() => window.location.reload(), 1500);
+            return true;
+        }
+    } catch (err) {
+        showToast('Restore failed: ' + err.message, 'error');
+    }
+    return false;
+};
 
 async function handleUpdatePin(event) {
     event.preventDefault();
@@ -1559,16 +1579,6 @@ function setupEventListeners() {
         });
     });
 
-    // Cashier Segment Toggle Selection
-    (document.querySelectorAll('.btn-toggle-cashier') || []).forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            (document.querySelectorAll('.btn-toggle-cashier') || []).forEach(x => x.classList.remove('active'));
-            const targetBtn = e.target.closest('.btn-toggle-cashier');
-            targetBtn.classList.add('active');
-            state.cashier = targetBtn.dataset.cashier;
-        });
-    });
-
     // Scanner UI
     document.getElementById('btn-scan-product').addEventListener('click', openScannerOverlay);
     document.getElementById('btn-close-scanner').addEventListener('click', closeScannerOverlay);
@@ -1613,10 +1623,10 @@ function setupEventListeners() {
     // Checkout
     document.getElementById('btn-checkout').addEventListener('click', handleCheckout);
 
-    // Receipt closing / actions
-    document.getElementById('btn-close-receipt').addEventListener('click', closeReceiptModal);
-    document.getElementById('btn-whatsapp-receipt').addEventListener('click', handleWhatsAppShare);
-    document.getElementById('btn-print-receipt').addEventListener('click', printActiveReceipt);
+    // Receipt actions (delegated to ReceiptManager)
+    document.getElementById('btn-close-receipt').addEventListener('click', () => ReceiptManager.destroyReceiptPreview());
+    document.getElementById('btn-whatsapp-receipt').addEventListener('click', () => ReceiptManager.handleWhatsAppShare());
+    document.getElementById('btn-print-receipt').addEventListener('click', () => ReceiptManager.printActiveReceipt());
 
     // Admin Tabs Swaps
     (document.querySelectorAll('.admin-tab-btn') || []).forEach(btn => {
@@ -1647,9 +1657,20 @@ function setupEventListeners() {
     document.getElementById('btn-close-delbill-modal').addEventListener('click', closeDeleteBillModal);
     document.getElementById('btn-confirm-delete-bill').addEventListener('click', confirmDeleteBill);
 
-    // Settings
-    document.getElementById('btn-export-backup').addEventListener('click', handleExportBackup);
-    document.getElementById('backup-import-file').addEventListener('change', handleImportBackup);
+    // Settings Backup handlers (delegated to BackupManager)
+    document.getElementById('btn-export-backup').addEventListener('click', () => BackupManager.exportBackup());
+    
+    const importInput = document.getElementById('backup-import-file');
+    if (importInput) {
+        importInput.parentElement.addEventListener('click', (e) => {
+            if (NativeBridge.isAndroid()) {
+                e.preventDefault(); // Stop default file select dialog
+                BackupManager.importBackup();
+            }
+        });
+        importInput.addEventListener('change', handleBrowserImportBackup);
+    }
+    
     document.getElementById('pin-change-form').addEventListener('submit', handleUpdatePin);
 
     // Home screen Insights details popups
@@ -1678,8 +1699,16 @@ function updateNetworkStatus() {
 // ==========================================
 // TOASTS & UX EFFECTS
 // ==========================================
+// Centralized showToast mapping to NativeBridge
 function showToast(message, type = 'info') {
+    NativeBridge.showToast(message, type);
+}
+
+// Fallback browser toast rendering
+function showBrowserToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
+    if (!container) return;
+    
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.innerText = message;
@@ -1692,6 +1721,7 @@ function showToast(message, type = 'info') {
         toast.addEventListener('transitionend', () => toast.remove());
     }, 3500);
 }
+window.showBrowserToast = showBrowserToast;
 
 // Tiny audio synthesis for scanning beep
 function playBeepSound() {
@@ -1719,72 +1749,16 @@ function playBeepSound() {
 // ==========================================
 // WHATSAPP BILL SHARING & CANVAS GENERATION
 // ==========================================
-async function handleWhatsAppShare() {
-    const bill = state.activeBill;
-    if (!bill) {
-        showToast("No active bill to share", "error");
-        return;
-    }
+// ==========================================
+// BROWSER FILE DOWNLOAD FALLBACKS
+// ==========================================
 
-    let mobileNumber = bill.customerMobile;
-    if (!mobileNumber) {
-        showToast("Please enter the customer's mobile number to share via WhatsApp.", "warning");
-        const userMobile = prompt("Please enter customer's 10-digit mobile number:");
-        if (userMobile) {
-            const cleanMobile = userMobile.replace(/\D/g, '');
-            if (cleanMobile.length === 10) {
-                mobileNumber = cleanMobile;
-                bill.customerMobile = mobileNumber;
-                try {
-                    await updateBillMobile(bill.id, mobileNumber);
-                    showReceiptModal(bill);
-                    showToast("Mobile number updated successfully!", "success");
-                } catch (dbErr) {
-                    console.error("Failed to save mobile number:", dbErr);
-                }
-            } else {
-                showToast("Invalid number! Must be exactly 10 digits.", "error");
-                return;
-            }
-        } else {
-            return;
-        }
-    }
-
-    let cleanMobile = mobileNumber.replace(/\D/g, '');
-    if (cleanMobile.length === 10) {
-        cleanMobile = '91' + cleanMobile;
-    }
-
-    const message = `Here is your bill from Kid's Trends (Bill No: ${bill.id})`;
-    const whatsappUrl = `https://wa.me/${cleanMobile}?text=${encodeURIComponent(message)}`;
-
-    // Open WhatsApp chat synchronously to avoid popup blocker
-    window.open(whatsappUrl, '_blank');
-
-    // Attempt to copy image to clipboard in the background as a fallback helper
-    try {
-        const canvas = generateReceiptCanvas(bill);
-        canvas.toBlob(async (blob) => {
-            if (blob) {
-                try {
-                    await navigator.clipboard.write([
-                        new ClipboardItem({ 'image/png': blob })
-                    ]);
-                    console.log("Receipt copied to clipboard.");
-                } catch (clipErr) {
-                    console.warn("Clipboard copy failed: ", clipErr);
-                }
-            }
-        }, 'image/png');
-    } catch (err) {
-        console.error("Failed to copy image to clipboard in background:", err);
-    }
-}
-
+/**
+ * Fallback browser file downloader for bill receipt images.
+ */
 function downloadBillImage(bill) {
     try {
-        const canvas = generateReceiptCanvas(bill);
+        const canvas = ReceiptManager.generateReceiptCanvas(bill);
         const dataUrl = canvas.toDataURL('image/png');
         const link = document.createElement('a');
         link.download = `bill_${bill.id}.png`;
@@ -1792,212 +1766,11 @@ function downloadBillImage(bill) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        
+        // Clean up immediately to release memory
+        canvas.width = 0;
+        canvas.height = 0;
     } catch (err) {
         console.error("Failed to auto-download bill image:", err);
     }
-}
-
-function generateReceiptCanvas(bill) {
-    const items = bill.items || [];
-    const scale = 3; // 3x scaling for crystal-clear HD resolution
-    const logicalWidth = 380;
-    
-    // Dynamically calculate logical height by tracing all canvas content vertical spaces
-    let tempY = 30;
-    tempY += 20; // KID'S TRENDS
-    tempY += 16; // A Complete Kids Wear Collection
-    tempY += 16; // Near Siddiq Shah Taleem
-    tempY += 16; // Choubara Road, Bidar
-    tempY += 16; // GSTIN
-    tempY += 16; // Phone
-    tempY += 12; // divider
-    tempY += 18; // Bill No
-    tempY += 16; // Date
-    tempY += 16; // Time
-    tempY += 16; // Cashier Name
-    if (bill.customerMobile) {
-        tempY += 16; // Customer Mobile
-    }
-    tempY += 12; // divider
-    tempY += 18; // Headers
-    tempY += 10; // divider
-    
-    items.forEach(() => {
-        tempY += 20; // each item
-    });
-    
-    tempY += 12; // divider
-    tempY += 18; // Subtotal
-    if (bill.discountAmount > 0) {
-        tempY += 18; // Discount
-    }
-    tempY += 8;  // divider
-    tempY += 20; // Grand Total
-    tempY += 14; // Inclusive of all Taxes
-    tempY += 8;  // divider
-    tempY += 18; // Amount Paid
-    tempY += 8;  // divider
-    tempY += 20; // 8-Day Replacement Only (No Return)
-    tempY += 20; // THANK YOU - VISIT AGAIN
-    tempY += 20; // Software By www.scangrow.in
-    tempY += 14; // No.
-    
-    // Add extra padding at the bottom to ensure no cropping occurs
-    tempY += 25; 
-    
-    const logicalHeight = tempY;
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = logicalWidth * scale;
-    canvas.height = logicalHeight * scale;
-    
-    const ctx = canvas.getContext('2d');
-    
-    // Scale drawings to produce high resolution output
-    ctx.scale(scale, scale);
-    
-    // White background
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, logicalWidth, logicalHeight);
-    
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 20px monospace';
-    ctx.textAlign = 'center';
-    
-    let y = 30;
-    ctx.fillText("KID'S TRENDS", logicalWidth / 2, y);
-    ctx.font = '12px monospace';
-    y += 20;
-    ctx.fillText("A Complete Kids Wear Collection", logicalWidth / 2, y);
-    y += 16;
-    ctx.fillText("Near Siddiq Shah Taleem", logicalWidth / 2, y);
-    y += 16;
-    ctx.fillText("Choubara Road, Bidar", logicalWidth / 2, y);
-    y += 16;
-    ctx.fillText("GSTIN: 29EEIPA4380H1ZE", logicalWidth / 2, y);
-    y += 16;
-    ctx.fillText("Phone: 8431520625, 8453554561", logicalWidth / 2, y);
-    
-    y += 12;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    ctx.textAlign = 'left';
-    ctx.font = '12px monospace';
-    y += 18;
-    ctx.fillText(`Bill No: ${bill.id}`, 15, y);
-    y += 16;
-    ctx.fillText(`Date: ${bill.date}`, 15, y);
-    y += 16;
-    ctx.fillText(`Time: ${bill.time}`, 15, y);
-    y += 16;
-    ctx.fillText(`Cashier: ${bill.cashier || 'Irfan'}`, 15, y);
-    if (bill.customerMobile) {
-        y += 16;
-        ctx.fillText(`Customer Mobile Number: ${bill.customerMobile}`, 15, y);
-    }
-    
-    y += 12;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    y += 18;
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText("ITEM", 15, y);
-    ctx.textAlign = 'center';
-    ctx.fillText("QTY", 200, y);
-    ctx.textAlign = 'right';
-    ctx.fillText("RATE", 290, y);
-    ctx.fillText("TOTAL", 365, y);
-    
-    y += 10;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    ctx.font = '12px monospace';
-    items.forEach(item => {
-        y += 20;
-        ctx.textAlign = 'left';
-        let itemName = `${item.name}-${item.size}`;
-        if (itemName.length > 20) itemName = itemName.substring(0, 18) + '..';
-        ctx.fillText(itemName, 15, y);
-        
-        ctx.textAlign = 'center';
-        ctx.fillText(String(item.qty), 200, y);
-        
-        ctx.textAlign = 'right';
-        ctx.fillText(`₹${Math.round(item.price)}`, 290, y);
-        ctx.fillText(`₹${Math.round(item.total)}`, 365, y);
-    });
-    
-    y += 12;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    ctx.textAlign = 'left';
-    y += 18;
-    ctx.fillText("Subtotal:", 15, y);
-    ctx.textAlign = 'right';
-    ctx.fillText(`₹${bill.subtotal.toFixed(2)}`, 365, y);
-    
-    if (bill.discountAmount > 0) {
-        y += 18;
-        ctx.textAlign = 'left';
-        ctx.fillText("Discount:", 15, y);
-        ctx.textAlign = 'right';
-        ctx.fillText(`₹${bill.discountAmount.toFixed(2)}`, 365, y);
-    }
-    
-    y += 8;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    y += 20;
-    ctx.font = 'bold 14px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText("Grand Total:", 15, y);
-    ctx.textAlign = 'right';
-    ctx.fillText(`₹${bill.grandTotal.toFixed(2)}`, 365, y);
-    
-    y += 14;
-    ctx.font = 'italic 10px monospace';
-    ctx.fillText("(Inclusive of all Taxes)", 365, y);
-    
-    y += 8;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    y += 18;
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText("Amount Paid:", 15, y);
-    ctx.font = 'bold 12px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(bill.paymentMode, 365, y);
-    
-    y += 8;
-    drawCanvasDivider(ctx, 10, logicalWidth - 10, y);
-    
-    y += 20;
-    ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText("8-Day Replacement Only (No Return)", logicalWidth / 2, y);
-    
-    y += 20;
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText("THANK YOU - VISIT AGAIN", logicalWidth / 2, y);
-    
-    y += 20;
-    ctx.font = '10px monospace';
-    ctx.fillStyle = '#555555';
-    ctx.fillText("Software By www.scangrow.in", logicalWidth / 2, y);
-    y += 14;
-    ctx.fillText("WhatsApp No. 6364369405", logicalWidth / 2, y);
-    
-    return canvas;
-}
-
-function drawCanvasDivider(ctx, x1, x2, y) {
-    ctx.beginPath();
-    ctx.setLineDash([2, 2]);
-    ctx.moveTo(x1, y);
-    ctx.lineTo(x2, y);
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.setLineDash([]);
 }

@@ -226,7 +226,7 @@ async function deleteProduct(code) {
  * Deducts stock from specific sizes of products.
  * Uses request chaining to avoid microtask yields.
  */
-async function createBill(cartItems, discountInfo, paymentMode, customerMobile, cashier) {
+async function createBill(cartItems, discountInfo, paymentMode, customerMobile, cashier, notes) {
     const db = await initDB();
     
     return new Promise((resolve, reject) => {
@@ -362,7 +362,8 @@ async function createBill(cartItems, discountInfo, paymentMode, customerMobile, 
                                 grandTotal,
                                 paymentMode: paymentMode || 'Cash',
                                 customerMobile: customerMobile || '',
-                                cashier: cashier || 'Irfan'
+                                cashier: cashier || 'Irfan',
+                                notes: notes || ''
                             };
 
                             // 5. Save settings counters
@@ -618,13 +619,13 @@ async function getDeletedBills() {
 }
 
 // ==========================================
-// DATA BACKUP & RESTORE
+// DATA BACKUP & RESTORE HELPERS
 // ==========================================
 
-async function exportBackupJSON() {
+async function exportRawStoresData() {
     const db = await initDB();
     const stores = ['settings', 'products', 'bills', 'deleted_bills', 'audit_logs'];
-    const backupData = {};
+    const rawData = {};
 
     return new Promise((resolve, reject) => {
         const transaction = db.transaction(stores, 'readonly');
@@ -634,10 +635,10 @@ async function exportBackupJSON() {
         stores.forEach(storeName => {
             const request = transaction.objectStore(storeName).getAll();
             request.onsuccess = () => {
-                backupData[storeName] = request.result;
+                rawData[storeName] = request.result;
                 completed++;
                 if (completed === stores.length) {
-                    resolve(JSON.stringify(backupData, null, 2));
+                    resolve(rawData);
                 }
             };
             request.onerror = () => {
@@ -647,40 +648,26 @@ async function exportBackupJSON() {
     });
 }
 
-async function restoreBackupJSON(jsonDataString) {
-    let backupData;
-    try {
-        backupData = JSON.parse(jsonDataString);
-    } catch (e) {
-        throw new Error('Invalid JSON format');
-    }
-
-    const stores = ['settings', 'products', 'bills', 'deleted_bills', 'audit_logs'];
-    for (const store of stores) {
-        if (!Array.isArray(backupData[store])) {
-            throw new Error(`Missing or invalid store in backup: ${store}`);
-        }
-    }
-
+async function restoreRawStoresData(rawData) {
     const db = await initDB();
+    const stores = ['settings', 'products', 'bills', 'deleted_bills', 'audit_logs'];
     const transaction = db.transaction(stores, 'readwrite');
 
     return new Promise((resolve, reject) => {
         transaction.onerror = () => reject(transaction.error || new Error('Restore transaction failed'));
-        transaction.oncomplete = () => {
-            logActivity('Database Restored', 'System restored from file backup');
-            resolve(true);
-        };
+        transaction.oncomplete = () => resolve(true);
 
         try {
             for (const storeName of stores) {
                 const store = transaction.objectStore(storeName);
                 store.clear();
-                for (const item of backupData[storeName]) {
-                    if (storeName === 'bills' || storeName === 'deleted_bills') {
-                        sanitizeBillForStorage(item);
+                if (Array.isArray(rawData[storeName])) {
+                    for (const item of rawData[storeName]) {
+                        if (storeName === 'bills' || storeName === 'deleted_bills') {
+                            sanitizeBillForStorage(item);
+                        }
+                        store.put(item);
                     }
-                    store.put(item);
                 }
             }
         } catch (e) {
