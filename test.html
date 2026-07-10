@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kid's Trends POS - Test Suite (Phase 2)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0b0f19;
+            color: #f8fafc;
+            padding: 24px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 { color: #6366f1; border-bottom: 2px solid #232e42; padding-bottom: 8px; }
+        .summary { margin: 16px 0; font-size: 1.1rem; }
+        .test-case {
+            background-color: #141b2d;
+            border: 1px solid #232e42;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .test-name { font-weight: 600; }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        .badge.pass { background-color: rgba(52, 211, 153, 0.2); color: #34d399; }
+        .badge.fail { background-color: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .log-error {
+            background-color: rgba(239, 68, 68, 0.05);
+            color: #f87171;
+            padding: 8px 12px;
+            border-left: 3px solid #f87171;
+            font-family: monospace;
+            margin-top: 4px;
+            border-radius: 0 4px 4px 0;
+            display: none;
+        }
+        .test-case.failed-case {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .test-header-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+    </style>
+    <!-- Import db.js wrapper -->
+    <script src="db.js"></script>
+</head>
+<body>
+
+    <h1>KID'S TRENDS POS - TEST SUITE (PHASE 2)</h1>
+    <div class="summary" id="test-summary">Running assertions...</div>
+    <div id="test-results"></div>
+
+    <script>
+        // Override DB_NAME for testing to protect production data
+        let testDbInstance = null;
+
+        function assert(condition, message) {
+            if (!condition) {
+                throw new Error(message || "Assertion failed");
+            }
+        }
+
+        const tests = [];
+        function addTest(name, fn) {
+            tests.push({ name, fn });
+        }
+
+        // Setup clean test DB instance
+        async function setupTestDb() {
+            await new Promise((resolve) => {
+                const req = indexedDB.deleteDatabase('KidsTrendsDB_Test');
+                req.onsuccess = () => resolve();
+                req.onerror = () => resolve();
+            });
+
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('KidsTrendsDB_Test', 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    db.createObjectStore('settings', { keyPath: 'key' });
+                    
+                    const productStore = db.createObjectStore('products', { keyPath: 'code' });
+                    productStore.createIndex('name', 'name', { unique: false });
+                    productStore.createIndex('category', 'category', { unique: false });
+                    
+                    const billStore = db.createObjectStore('bills', { keyPath: 'id' });
+                    billStore.createIndex('dateTimestamp', 'dateTimestamp', { unique: false });
+                    
+                    db.createObjectStore('deleted_bills', { keyPath: 'id' });
+                    db.createObjectStore('audit_logs', { keyPath: 'id', autoIncrement: true });
+                };
+                request.onsuccess = (e) => {
+                    testDbInstance = e.target.result;
+                    resolve();
+                };
+                request.onerror = () => reject();
+            });
+        }
+
+        // Test 1: Product CRUD with Sizes List
+        addTest("Verify Product CRUD operations with sizes", async () => {
+            dbInstance = testDbInstance;
+
+            const product = { 
+                code: 'T101', 
+                name: 'Test Shirt', 
+                category: 'Kids Wear', 
+                sizes: [
+                    { size: '12', price: 200, stock: 10 },
+                    { size: '14', price: 250, stock: 5 }
+                ]
+            };
+
+            await saveProduct(product);
+            const saved = await getProduct('T101');
+            
+            assert(saved !== null, "Product should be saved and loaded");
+            assert(saved.name === 'Test Shirt', "Product name mismatch");
+            assert(saved.sizes.length === 2, "Product sizes count mismatch");
+            assert(saved.sizes[0].price === 200, "Size 12 price mismatch");
+            assert(saved.sizes[1].stock === 5, "Size 14 stock mismatch");
+
+            // Edit product sizes
+            saved.sizes[0].stock = 15;
+            await saveProduct(saved);
+            const updated = await getProduct('T101');
+            assert(updated.sizes[0].stock === 15, "Product size stock update failed");
+
+            // Delete product
+            await deleteProduct('T101');
+            const deleted = await getProduct('T101');
+            assert(deleted === null, "Product deletion failed");
+        });
+
+        // Test 2: Size-Based Stock Deduction
+        addTest("Verify size-specific stock deduction on Billing", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'B201', 
+                name: 'Billing Shirt', 
+                category: 'Kids Wear', 
+                sizes: [
+                    { size: '12', price: 300, stock: 5 },
+                    { size: '14', price: 350, stock: 10 }
+                ]
+            };
+            await saveProduct(p1);
+
+            // Create cart with specific size
+            const cart = [
+                { code: 'B201', name: 'Billing Shirt', size: '12', price: 300, qty: 2 }
+            ];
+
+            const bill = await createBill(cart, { type: 'percentage', value: 10 }, 'Cash'); // 10% disc
+
+            assert(bill.subtotal === 600, `Expected subtotal 600, got ${bill.subtotal}`);
+            assert(bill.discountAmount === 60, `Expected discount 60, got ${bill.discountAmount}`);
+            assert(bill.grandTotal === 540, `Expected grand total 540, got ${bill.grandTotal}`);
+            assert(bill.paymentMode === 'Cash', `Expected payment mode Cash, got ${bill.paymentMode}`);
+
+            // Verify size-specific stock deducted
+            const updated = await getProduct('B201');
+            const size12 = updated.sizes.find(s => s.size === '12');
+            const size14 = updated.sizes.find(s => s.size === '14');
+
+            assert(size12.stock === 3, `Expected size 12 stock to be 3, got ${size12.stock}`);
+            assert(size14.stock === 10, `Expected size 14 stock to remain 10, got ${size14.stock}`);
+        });
+
+        // Test 3: Stock validation and out-of-stock per size
+        addTest("Verify OUT OF STOCK prevention per size", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'S301', 
+                name: 'Stock Shirt', 
+                category: 'Kids Wear', 
+                sizes: [
+                    { size: '12', price: 300, stock: 2 }
+                ]
+            };
+            await saveProduct(p1);
+
+            const cart = [
+                { code: 'S301', name: 'Stock Shirt', size: '12', price: 300, qty: 3 } // Requests 3, stock is 2
+            ];
+
+            let errorThrown = false;
+            try {
+                await createBill(cart, { type: 'none', value: 0 }, 'UPI');
+            } catch (e) {
+                errorThrown = true;
+                assert(e.message.includes("OUT OF STOCK"), `Unexpected error message: ${e.message}`);
+            }
+
+            assert(errorThrown, "Expected billing to fail with OUT OF STOCK error");
+
+            const dbProd = await getProduct('S301');
+            const size12 = dbProd.sizes.find(s => s.size === '12');
+            assert(size12.stock === 2, `Expected stock to remain 2, but got ${size12.stock}`);
+        });
+
+        // Test 4: Delete Bill and Restock size
+        addTest("Verify stock restoration to size on Bill Deletion", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'D401', 
+                name: 'Delete Shirt', 
+                category: 'Kids Wear', 
+                sizes: [
+                    { size: 'M', price: 100, stock: 10 }
+                ]
+            };
+            await saveProduct(p1);
+
+            const cart = [{ code: 'D401', name: 'Delete Shirt', size: 'M', price: 100, qty: 4 }];
+            const bill = await createBill(cart, { type: 'none', value: 0 }, 'UPI');
+
+            let prod = await getProduct('D401');
+            let sizeM = prod.sizes.find(s => s.size === 'M');
+            assert(sizeM.stock === 6, `Expected stock 6 after checkout, got ${sizeM.stock}`);
+
+            // Delete Bill
+            await deleteBill(bill.id, "Customer returned items");
+
+            // Verify stock restored
+            prod = await getProduct('D401');
+            sizeM = prod.sizes.find(s => s.size === 'M');
+            assert(sizeM.stock === 10, `Expected stock restored to 10, got ${sizeM.stock}`);
+
+            const checkBill = await getBill(bill.id);
+            assert(checkBill === null, "Bill should be deleted from active bills");
+        });
+
+        // Test 5: Verify resetting sequential bill numbers daily
+        addTest("Verify daily resetting sequential bill numbers", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'E501', 
+                name: 'Rollover Shirt', 
+                category: 'Kids Wear', 
+                sizes: [{ size: 'M', price: 100, stock: 100 }] 
+            };
+            await saveProduct(p1);
+
+            // 1. Seed last bill date as yesterday
+            const now = new Date();
+            // Calculate yesterday's date string in format DDMMYY
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            const DD_y = String(yesterday.getDate()).padStart(2, '0');
+            const MM_y = String(yesterday.getMonth() + 1).padStart(2, '0');
+            const YY_y = String(yesterday.getFullYear()).slice(-2);
+            const yesterdayDateKey = `${DD_y}${MM_y}${YY_y}`;
+
+            await setSetting('last_bill_date', yesterdayDateKey);
+            await setSetting('last_bill_sequence', 8); // Yesterday ended at bill sequence 8
+
+            // 2. Perform bill today, should rollover sequence to 1
+            const cart = [{ code: 'E501', name: 'Rollover Shirt', size: 'M', price: 100, qty: 1 }];
+            const bill1 = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+
+            const DD_t = String(now.getDate()).padStart(2, '0');
+            const MM_t = String(now.getMonth() + 1).padStart(2, '0');
+            const YY_t = String(now.getFullYear()).slice(-2);
+            const todayDateKey = `${DD_t}${MM_t}${YY_t}`;
+
+            const expectedBill1Id = `${todayDateKey}01`;
+            assert(bill1.id === expectedBill1Id, `Expected Rolled-over Bill ID ${expectedBill1Id}, got ${bill1.id}`);
+
+            // 3. Perform second bill today, should increment sequence to 2
+            const bill2 = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+            const expectedBill2Id = `${todayDateKey}02`;
+            assert(bill2.id === expectedBill2Id, `Expected Incremented Bill ID ${expectedBill2Id}, got ${bill2.id}`);
+        });
+
+        // Test 6: Verify Customer Mobile Number persistence & updates
+        addTest("Verify Customer Mobile number persistence and update settings", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'M601', 
+                name: 'Mobile Shirt', 
+                category: 'Kids Wear', 
+                sizes: [{ size: 'M', price: 100, stock: 10 }] 
+            };
+            await saveProduct(p1);
+
+            const cart = [{ code: 'M601', name: 'Mobile Shirt', size: 'M', price: 100, qty: 1 }];
+            
+            // 1. Create a bill with a mobile number
+            const billWithMobile = await createBill(cart, { type: 'none', value: 0 }, 'Cash', '9876543210');
+            const loadedBill1 = await getBill(billWithMobile.id);
+            assert(loadedBill1.customerMobile === '9876543210', `Expected customer mobile 9876543210, got ${loadedBill1.customerMobile}`);
+
+            // 2. Create a bill without a mobile number and then update it
+            const billNoMobile = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+            const loadedBill2 = await getBill(billNoMobile.id);
+            assert(loadedBill2.customerMobile === '', `Expected customer mobile to be empty, got ${loadedBill2.customerMobile}`);
+
+            await updateBillMobile(billNoMobile.id, '1234567890');
+            const loadedBill2Updated = await getBill(billNoMobile.id);
+            assert(loadedBill2Updated.customerMobile === '1234567890', `Expected updated customer mobile 1234567890, got ${loadedBill2Updated.customerMobile}`);
+        });
+
+        // Test 6.5: Verify Cashier Selection storage and defaults
+        addTest("Verify Cashier Selection storage and defaults", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'C601', 
+                name: 'Cashier Shirt', 
+                category: 'Kids Wear', 
+                sizes: [{ size: 'M', price: 120, stock: 10 }] 
+            };
+            await saveProduct(p1);
+
+            const cart = [{ code: 'C601', name: 'Cashier Shirt', size: 'M', price: 120, qty: 1 }];
+            
+            // 1. Create a bill with default cashier (should be Irfan)
+            const billDefaultCashier = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+            const loadedBill1 = await getBill(billDefaultCashier.id);
+            assert(loadedBill1.cashier === 'Irfan', `Expected default cashier to be Irfan, got ${loadedBill1.cashier}`);
+
+            // 2. Create a bill with a custom cashier (e.g. Faizan)
+            const billCustomCashier = await createBill(cart, { type: 'none', value: 0 }, 'Cash', '', 'Faizan');
+            const loadedBill2 = await getBill(billCustomCashier.id);
+            assert(loadedBill2.cashier === 'Faizan', `Expected cashier to be Faizan, got ${loadedBill2.cashier}`);
+        });
+
+        // Test 7: Verify database performance with 500 products and 500 bills
+        addTest("Verify database performance with 500 products and 500 bills", async () => {
+            dbInstance = testDbInstance;
+
+            // 1. Seed 500 products
+            const products = [];
+            for (let i = 1; i <= 500; i++) {
+                const code = `PROD${String(i).padStart(4, '0')}`;
+                products.push({
+                    code,
+                    name: `Product ${i}`,
+                    category: i % 2 === 0 ? "Shirts" : "Pants",
+                    sizes: [
+                        { size: 'M', price: 100 + (i % 10) * 10, stock: 100 }
+                    ]
+                });
+            }
+            for (const p of products) {
+                await saveProduct(p);
+            }
+
+            // 2. Seed 500 bills
+            for (let i = 1; i <= 500; i++) {
+                const cart = [
+                    { code: `PROD${String((i % 500) + 1).padStart(4, '0')}`, name: `Product ${i}`, size: 'M', price: 100, qty: 1 }
+                ];
+                await createBill(cart, { type: 'none', value: 0 }, 'Cash', '9876543210');
+            }
+
+            // 3. Measure search performance
+            const t0 = performance.now();
+            const allProds = await getAllProducts();
+            const filteredProds = allProds.filter(p => p.name.toLowerCase().includes("product 250"));
+            const t1 = performance.now();
+            const searchTime = t1 - t0;
+            assert(filteredProds.length > 0, "Should find matching product");
+            
+            // 4. Measure Sales History loading/sorting performance
+            const t2 = performance.now();
+            const allBills = await getAllBills();
+            const t3 = performance.now();
+            const billsLoadTime = t3 - t2;
+            assert(allBills.length === 500, `Expected 500 bills, got ${allBills.length}`);
+
+            console.log(`[Performance Metrics] Search time: ${searchTime.toFixed(2)}ms, Bills Load time: ${billsLoadTime.toFixed(2)}ms`);
+            
+            // Assert performance is within acceptable thresholds (e.g. search < 50ms, load bills < 100ms)
+            assert(searchTime < 50, `Search is too slow: ${searchTime.toFixed(2)}ms`);
+            assert(billsLoadTime < 100, `Bills loading is too slow: ${billsLoadTime.toFixed(2)}ms`);
+        });
+
+        // Test 8: Verify Payment Method Analytics (Cash, UPI & Exchange calculations)
+        addTest("Verify Payment Method Analytics (Cash, UPI & Exchange)", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'T801', 
+                name: 'Analytics Shirt', 
+                category: 'Kids Wear', 
+                sizes: [{ size: 'M', price: 100, stock: 10 }] 
+            };
+            await saveProduct(p1);
+
+            // 1. Create a Cash Bill
+            const cartCash = [{ code: 'T801', name: 'Analytics Shirt', size: 'M', price: 100, qty: 1 }];
+            const cashBill = await createBill(cartCash, { type: 'none', value: 0 }, 'Cash');
+            
+            assert(cashBill.paymentMethod === 'Cash', "Expected paymentMethod to be Cash");
+            assert(cashBill.cashAmount === 100, `Expected cashAmount 100, got ${cashBill.cashAmount}`);
+            assert(cashBill.upiAmount === 0, `Expected upiAmount 0, got ${cashBill.upiAmount}`);
+            
+            // 2. Create a UPI Bill
+            const cartUPI = [{ code: 'T801', name: 'Analytics Shirt', size: 'M', price: 100, qty: 2 }];
+            const upiBill = await createBill(cartUPI, { type: 'none', value: 0 }, 'UPI');
+            
+            assert(upiBill.paymentMethod === 'UPI', "Expected paymentMethod to be UPI");
+            assert(upiBill.cashAmount === 0, `Expected cashAmount 0, got ${upiBill.cashAmount}`);
+            assert(upiBill.upiAmount === 200, `Expected upiAmount 200, got ${upiBill.upiAmount}`);
+        });
+
+        // Test 9: Verify Difference-Based Stock & Version History during Edit Bill
+        addTest("Verify Difference-Based Stock & Version History during Edit", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'T901', 
+                name: 'Edit Shirt M', 
+                category: 'Shirts', 
+                sizes: [{ size: 'M', price: 100, stock: 5 }] 
+            };
+            const p2 = { 
+                code: 'T902', 
+                name: 'Edit Shirt L', 
+                category: 'Shirts', 
+                sizes: [{ size: 'L', price: 120, stock: 5 }] 
+            };
+            await saveProduct(p1);
+            await saveProduct(p2);
+
+            // Create initial bill with 2 units of Shirt M (Total ₹200)
+            const cart = [{ code: 'T901', name: 'Edit Shirt M', size: 'M', price: 100, qty: 2 }];
+            const bill = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+
+            let dbProd1 = await getProduct('T901');
+            assert(dbProd1.sizes[0].stock === 3, `Expected stock of T901 to be 3, got ${dbProd1.sizes[0].stock}`);
+
+            // Edit bill: Exchange 2 units of Shirt M with 1 unit of Shirt L (Total ₹120)
+            const newCart = [{ code: 'T902', name: 'Edit Shirt L', size: 'L', price: 120, qty: 1 }];
+            const updatedBill = await updateBill(bill.id, newCart, { type: 'none', value: 0 }, 'Cash', '', 'Irfan');
+
+            // Verify stock: Shirt M should be restored (+2 -> stock 5), Shirt L should be deducted (-1 -> stock 4)
+            dbProd1 = await getProduct('T901');
+            let dbProd2 = await getProduct('T902');
+            assert(dbProd1.sizes[0].stock === 5, `Expected Shirt M stock restored to 5, got ${dbProd1.sizes[0].stock}`);
+            assert(dbProd2.sizes[0].stock === 4, `Expected Shirt L stock to be 4, got ${dbProd2.sizes[0].stock}`);
+
+            // Verify edit tracking
+            const reloaded = await getBill(bill.id);
+            assert(reloaded.editCount === 1, `Expected editCount 1, got ${reloaded.editCount}`);
+            assert(reloaded.editHistory.length === 1, `Expected editHistory length 1, got ${reloaded.editHistory.length}`);
+            assert(reloaded.editHistory[0].grandTotal === 200, `Expected history Entry total to be 200, got ${reloaded.editHistory[0].grandTotal}`);
+            assert(reloaded.editHistory[0].exchangeDifference === -80, `Expected exchangeDifference -80 (120 - 200), got ${reloaded.editHistory[0].exchangeDifference}`);
+            assert(reloaded.originalBill !== null, "originalBill should be populated");
+            assert(reloaded.originalBill.grandTotal === 200, `Expected originalBill grandTotal 200, got ${reloaded.originalBill.grandTotal}`);
+        });
+
+        // Test 10: Verify Restoration flow
+        addTest("Verify Restoration flow with negative difference & version history", async () => {
+            dbInstance = testDbInstance;
+
+            const p1 = { 
+                code: 'T1001', 
+                name: 'Restore Shirt', 
+                category: 'Shirts', 
+                sizes: [{ size: 'M', price: 100, stock: 10 }] 
+            };
+            await saveProduct(p1);
+
+            // Create original bill with 2 units (Total ₹200)
+            const cart = [{ code: 'T1001', name: 'Restore Shirt', size: 'M', price: 100, qty: 2 }];
+            const bill = await createBill(cart, { type: 'none', value: 0 }, 'Cash');
+
+            // Edit bill: change quantity to 4 units (Total ₹400)
+            const cartEdit = [{ code: 'T1001', name: 'Restore Shirt', size: 'M', price: 100, qty: 4 }];
+            await updateBill(bill.id, cartEdit, { type: 'none', value: 0 }, 'Cash');
+
+            let dbProd = await getProduct('T1001');
+            assert(dbProd.sizes[0].stock === 6, `Expected stock 6 after edit, got ${dbProd.sizes[0].stock}`);
+
+            // Restore original bill
+            await restoreBillToOriginal(bill.id);
+
+            // Verify stock restored back to original checkout qty (stock 8)
+            dbProd = await getProduct('T1001');
+            assert(dbProd.sizes[0].stock === 8, `Expected stock reverted to 8, got ${dbProd.sizes[0].stock}`);
+
+            // Verify history is NOT deleted and version 3 is appended
+            const reloaded = await getBill(bill.id);
+            assert(reloaded.editCount === 2, `Expected editCount 2 (1 edit + 1 restore), got ${reloaded.editCount}`);
+            assert(reloaded.editHistory.length === 2, `Expected editHistory length 2, got ${reloaded.editHistory.length}`);
+            assert(reloaded.editHistory[1].action === 'restore', `Expected history action 'restore', got ${reloaded.editHistory[1].action}`);
+            assert(reloaded.editHistory[1].exchangeDifference === -200, `Expected restore diff -200 (200 - 400), got ${reloaded.editHistory[1].exchangeDifference}`);
+            assert(reloaded.grandTotal === 200, `Expected grandTotal reverted to 200, got ${reloaded.grandTotal}`);
+        });
+
+        // Test 11: Verify Complete Backup & Restore (Exact Clone Verification)
+        addTest("Verify Dynamic Backup & Restore including localStorage config", async () => {
+            dbInstance = testDbInstance;
+
+            // Seed theme setting in localStorage
+            localStorage.setItem('theme', 'dark-test');
+
+            // Export backup
+            const backupJson = await exportBackupJSON();
+            const parsed = JSON.parse(backupJson);
+
+            assert(parsed.products !== undefined, "Expected products store to be exported");
+            assert(parsed.bills !== undefined, "Expected bills store to be exported");
+            assert(parsed.__localStorage__ !== undefined, "Expected localStorage to be exported");
+            assert(parsed.__localStorage__.theme === 'dark-test', "Expected theme to be dark-test in backup");
+
+            // Reset localStorage theme to test restoration
+            localStorage.removeItem('theme');
+
+            // Restore from backup
+            await restoreBackupJSON(backupJson);
+
+            // Verify localStorage restored
+            assert(localStorage.getItem('theme') === 'dark-test', `Expected theme dark-test, got ${localStorage.getItem('theme')}`);
+            localStorage.removeItem('theme'); // Clean up
+        });
+
+        // Test runner engine
+        async function runSuite() {
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML = '';
+            
+            let passedCount = 0;
+            let failedCount = 0;
+
+            for (const test of tests) {
+                await setupTestDb();
+
+                const testEl = document.createElement('div');
+                testEl.className = 'test-case';
+
+                try {
+                    await test.fn();
+                    testEl.innerHTML = `
+                        <div class="test-header-row">
+                            <span class="test-name">✓ ${test.name}</span>
+                            <span class="badge pass">PASS</span>
+                        </div>
+                    `;
+                    passedCount++;
+                } catch (e) {
+                    testEl.className = 'test-case failed-case';
+                    testEl.innerHTML = `
+                        <div class="test-header-row">
+                            <span class="test-name">✗ ${test.name}</span>
+                            <span class="badge fail">FAIL</span>
+                        </div>
+                        <div class="log-error" style="display: block;">${e.stack || e.message}</div>
+                    `;
+                    failedCount++;
+                    console.error(e);
+                }
+                resultsDiv.appendChild(testEl);
+            }
+
+            dbInstance = null;
+
+            const summaryEl = document.getElementById('test-summary');
+            summaryEl.innerHTML = `Results: ${passedCount} / ${tests.length} tests passed. ` + 
+                (failedCount > 0 ? `<span style="color: #f87171;">${failedCount} failed</span>` : `<span style="color: #34d399;">All tests passed!</span>`);
+        }
+
+        runSuite();
+    </script>
+</body>
+</html>

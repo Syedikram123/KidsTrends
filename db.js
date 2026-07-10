@@ -226,7 +226,7 @@ async function deleteProduct(code) {
  * Deducts stock from specific sizes of products.
  * Uses request chaining to avoid microtask yields.
  */
-async function createBill(cartItems, discountInfo, paymentMode, customerMobile, cashier, notes) {
+async function createBill(cartItems, discountInfo, paymentMode, customerMobile, cashier) {
     const db = await initDB();
     
     return new Promise((resolve, reject) => {
@@ -361,9 +361,57 @@ async function createBill(cartItems, discountInfo, paymentMode, customerMobile, 
                                 gstAmount: 0,
                                 grandTotal,
                                 paymentMode: paymentMode || 'Cash',
+                                paymentMethod: paymentMode || 'Cash',
+                                cashAmount: (paymentMode === 'Cash') ? grandTotal : 0,
+                                upiAmount: (paymentMode === 'UPI') ? grandTotal : 0,
                                 customerMobile: customerMobile || '',
                                 cashier: cashier || 'Irfan',
-                                notes: notes || ''
+                                createdAt: now.toISOString(),
+                                updatedAt: null,
+                                editCount: 0,
+                                editHistory: []
+                            };
+
+                            // Save original and current copies
+                            billRecord.originalBill = {
+                                id: billId,
+                                date: dateStr,
+                                time: timeStr,
+                                dateTimestamp: billRecord.dateTimestamp,
+                                items: JSON.parse(JSON.stringify(billRecord.items)),
+                                subtotal,
+                                discountType: discountInfo.type,
+                                discountValue: discountInfo.value,
+                                discountAmount,
+                                gstPercent: 0,
+                                gstAmount: 0,
+                                grandTotal,
+                                paymentMode: billRecord.paymentMode,
+                                paymentMethod: billRecord.paymentMethod,
+                                cashAmount: billRecord.cashAmount,
+                                upiAmount: billRecord.upiAmount,
+                                customerMobile: billRecord.customerMobile,
+                                cashier: billRecord.cashier
+                            };
+                            billRecord.currentBill = {
+                                id: billId,
+                                date: dateStr,
+                                time: timeStr,
+                                dateTimestamp: billRecord.dateTimestamp,
+                                items: JSON.parse(JSON.stringify(billRecord.items)),
+                                subtotal,
+                                discountType: discountInfo.type,
+                                discountValue: discountInfo.value,
+                                discountAmount,
+                                gstPercent: 0,
+                                gstAmount: 0,
+                                grandTotal,
+                                paymentMode: billRecord.paymentMode,
+                                paymentMethod: billRecord.paymentMethod,
+                                cashAmount: billRecord.cashAmount,
+                                upiAmount: billRecord.upiAmount,
+                                customerMobile: billRecord.customerMobile,
+                                cashier: billRecord.cashier
                             };
 
                             // 5. Save settings counters
@@ -502,6 +550,434 @@ async function updateBillMobile(billId, mobile) {
 }
 
 /**
+ * Updates an existing bill. Calculates exchangeDifference, saves to editHistory,
+ * updates inventory stock using the difference between old bill and new bill,
+ * and updates cashAmount, upiAmount, currentBill, editCount and updatedAt.
+ */
+async function updateBill(billId, newCartItems, discountInfo, paymentMode, customerMobile, cashier) {
+    const db = await initDB();
+    
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(['products', 'bills', 'audit_logs'], 'readwrite');
+        
+        transaction.onerror = () => {
+            reject(transaction.error || new Error('Update bill transaction failed'));
+        };
+
+        const productsStore = transaction.objectStore('products');
+        const billsStore = transaction.objectStore('bills');
+        const logsStore = transaction.objectStore('audit_logs');
+
+        const billReq = billsStore.get(billId);
+        
+        billReq.onsuccess = () => {
+            let bill = billReq.result;
+            if (!bill) {
+                transaction.abort();
+                reject(new Error(`Bill ${billId} not found`));
+                return;
+            }
+            
+            bill = sanitizeBill(bill);
+            
+            const oldTotal = bill.grandTotal;
+            const oldItems = bill.items || [];
+            
+            // Compute difference for stock adjustments: oldQty - newQty
+            const itemKeys = new Set();
+            oldItems.forEach(i => itemKeys.add(`${i.code}|${i.size}`));
+            newCartItems.forEach(i => itemKeys.add(`${i.code}|${i.size}`));
+            
+            const diffs = [];
+            itemKeys.forEach(key => {
+                const [code, size] = key.split('|');
+                const oldItem = oldItems.find(i => i.code === code && i.size === size);
+                const newItem = newCartItems.find(i => i.code === code && i.size === size);
+                const oldQty = oldItem ? oldItem.qty : 0;
+                const newQty = newItem ? newItem.qty : 0;
+                const diffQty = oldQty - newQty; // Positive = restock, Negative = deduct
+                
+                if (diffQty !== 0) {
+                    diffs.push({ code, size, diffQty });
+                }
+            });
+            
+            const gets = diffs.map(d => ({
+                diff: d,
+                request: productsStore.get(d.code)
+            }));
+            
+            let completedCount = 0;
+            const productsToUpdate = [];
+            
+            if (gets.length === 0) {
+                saveUpdatedBillDetails();
+                return;
+            }
+            
+            gets.forEach(g => {
+                g.request.onsuccess = () => {
+                    let product = g.request.result;
+                    if (!product) {
+                        transaction.abort();
+                        reject(new Error(`Product not found: ${g.diff.code}`));
+                        return;
+                    }
+                    
+                    product = sanitizeProduct(product);
+                    const sizeObj = product.sizes.find(s => s.size === String(g.diff.size).trim());
+                    if (!sizeObj) {
+                        transaction.abort();
+                        reject(new Error(`Size '${g.diff.size}' not found for product '${product.name}'`));
+                        return;
+                    }
+                    
+                    if (sizeObj.stock + g.diff.diffQty < 0) {
+                        transaction.abort();
+                        reject(new Error(`OUT OF STOCK: ${product.name} (Size: ${g.diff.size}) has only ${sizeObj.stock} units left. Cannot deduct ${Math.abs(g.diff.diffQty)} more.`));
+                        return;
+                    }
+                    
+                    sizeObj.stock += g.diff.diffQty;
+                    product.updatedDate = new Date().toISOString();
+                    
+                    const existingInUpdate = productsToUpdate.find(p => p.code === product.code);
+                    if (!existingInUpdate) {
+                        productsToUpdate.push(product);
+                    }
+                    
+                    completedCount++;
+                    if (completedCount === gets.length) {
+                        productsToUpdate.forEach(p => productsStore.put(p));
+                        saveUpdatedBillDetails();
+                    }
+                };
+                
+                g.request.onerror = () => {
+                    transaction.abort();
+                    reject(g.request.error);
+                };
+            });
+            
+            function saveUpdatedBillDetails() {
+                const subtotal = newCartItems.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                
+                let discountAmount = 0;
+                if (discountInfo.type === 'percentage') {
+                    discountAmount = Math.round((subtotal * (discountInfo.value / 100)) * 100) / 100;
+                } else if (discountInfo.type === 'fixed') {
+                    discountAmount = Math.min(discountInfo.value, subtotal);
+                }
+                
+                const grandTotal = Math.round((subtotal - discountAmount) * 100) / 100;
+                const now = new Date();
+                
+                const diff = grandTotal - oldTotal;
+                
+                // History Entry represents the transition from this state to the next
+                const historyEntry = {
+                    version: bill.editHistory ? bill.editHistory.length + 1 : 1,
+                    updatedAt: now.toISOString(),
+                    action: 'edit',
+                    exchangeDifference: diff,
+                    items: JSON.parse(JSON.stringify(oldItems)),
+                    subtotal: bill.subtotal,
+                    discountType: bill.discountType,
+                    discountValue: bill.discountValue,
+                    discountAmount: bill.discountAmount,
+                    grandTotal: bill.grandTotal,
+                    paymentMode: bill.paymentMode,
+                    paymentMethod: bill.paymentMethod || bill.paymentMode,
+                    cashAmount: bill.cashAmount !== undefined ? bill.cashAmount : (bill.paymentMode === 'Cash' ? bill.grandTotal : 0),
+                    upiAmount: bill.upiAmount !== undefined ? bill.upiAmount : (bill.paymentMode === 'UPI' ? bill.grandTotal : 0),
+                    customerMobile: bill.customerMobile,
+                    cashier: bill.cashier
+                };
+                
+                // Store originalBill snapshot if not already present
+                if (!bill.originalBill) {
+                    bill.originalBill = JSON.parse(JSON.stringify(historyEntry));
+                    // Keep originalBill clean of version history fields
+                    delete bill.originalBill.version;
+                    delete bill.originalBill.updatedAt;
+                    delete bill.originalBill.action;
+                    delete bill.originalBill.exchangeDifference;
+                }
+                
+                bill.editHistory = bill.editHistory || [];
+                bill.editHistory.push(historyEntry);
+                
+                bill.editCount = (bill.editCount || 0) + 1;
+                bill.updatedAt = now.toISOString();
+                
+                // Update current fields
+                bill.items = newCartItems.map(item => ({
+                    code: item.code,
+                    name: item.name,
+                    size: item.size,
+                    price: item.price,
+                    qty: item.qty,
+                    total: item.price * item.qty
+                }));
+                bill.subtotal = subtotal;
+                bill.discountType = discountInfo.type;
+                bill.discountValue = discountInfo.value;
+                bill.discountAmount = discountAmount;
+                bill.grandTotal = grandTotal;
+                bill.paymentMode = paymentMode || 'Cash';
+                bill.paymentMethod = paymentMode || 'Cash';
+                bill.cashAmount = (paymentMode === 'Cash') ? grandTotal : 0;
+                bill.upiAmount = (paymentMode === 'UPI') ? grandTotal : 0;
+                bill.customerMobile = customerMobile || '';
+                bill.cashier = cashier || 'Irfan';
+                
+                bill.currentBill = {
+                    id: bill.id,
+                    date: bill.date,
+                    time: bill.time,
+                    dateTimestamp: bill.dateTimestamp,
+                    items: JSON.parse(JSON.stringify(bill.items)),
+                    subtotal,
+                    discountType: discountInfo.type,
+                    discountValue: discountInfo.value,
+                    discountAmount,
+                    gstPercent: 0,
+                    gstAmount: 0,
+                    grandTotal,
+                    paymentMode: bill.paymentMode,
+                    paymentMethod: bill.paymentMethod,
+                    cashAmount: bill.cashAmount,
+                    upiAmount: bill.upiAmount,
+                    customerMobile: bill.customerMobile,
+                    cashier: bill.cashier
+                };
+                
+                sanitizeBillForStorage(bill);
+                billsStore.put(bill);
+                
+                logsStore.add({
+                    timestamp: now.toISOString(),
+                    action: 'Bill Updated',
+                    details: `${billId} - Edited from ₹${oldTotal} to ₹${grandTotal} (Edit #${bill.editCount})`
+                });
+                
+                transaction.oncomplete = () => {
+                    resolve(bill);
+                };
+            }
+        };
+        
+        billReq.onerror = () => {
+            transaction.abort();
+            reject(billReq.error);
+        };
+    });
+}
+
+/**
+ * Restores a bill to its original creation state. Appends a restore action to editHistory,
+ * increments editCount, and reverts stock adjustments.
+ */
+async function restoreBillToOriginal(billId) {
+    const db = await initDB();
+    
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(['products', 'bills', 'audit_logs'], 'readwrite');
+        
+        transaction.onerror = () => {
+            reject(transaction.error || new Error('Restore bill transaction failed'));
+        };
+
+        const productsStore = transaction.objectStore('products');
+        const billsStore = transaction.objectStore('bills');
+        const logsStore = transaction.objectStore('audit_logs');
+
+        const billReq = billsStore.get(billId);
+        
+        billReq.onsuccess = () => {
+            let bill = billReq.result;
+            if (!bill) {
+                transaction.abort();
+                reject(new Error(`Bill ${billId} not found`));
+                return;
+            }
+            
+            bill = sanitizeBill(bill);
+            
+            if (!bill.originalBill) {
+                transaction.abort();
+                reject(new Error('This bill has never been edited and is already in its original state.'));
+                return;
+            }
+            
+            const currentItems = bill.items || [];
+            const originalItems = bill.originalBill.items || [];
+            
+            // Stock differences to restore: currentQty - originalQty
+            const itemKeys = new Set();
+            currentItems.forEach(i => itemKeys.add(`${i.code}|${i.size}`));
+            originalItems.forEach(i => itemKeys.add(`${i.code}|${i.size}`));
+            
+            const diffs = [];
+            itemKeys.forEach(key => {
+                const [code, size] = key.split('|');
+                const currItem = currentItems.find(i => i.code === code && i.size === size);
+                const origItem = originalItems.find(i => i.code === code && i.size === size);
+                const currQty = currItem ? currItem.qty : 0;
+                const origQty = origItem ? origItem.qty : 0;
+                const diffQty = currQty - origQty; // Positive = add back, Negative = deduct
+                
+                if (diffQty !== 0) {
+                    diffs.push({ code, size, diffQty });
+                }
+            });
+            
+            const gets = diffs.map(d => ({
+                diff: d,
+                request: productsStore.get(d.code)
+            }));
+            
+            let completedCount = 0;
+            const productsToUpdate = [];
+            
+            if (gets.length === 0) {
+                restoreBillData();
+                return;
+            }
+            
+            gets.forEach(g => {
+                g.request.onsuccess = () => {
+                    let product = g.request.result;
+                    if (!product) {
+                        transaction.abort();
+                        reject(new Error(`Product not found: ${g.diff.code}`));
+                        return;
+                    }
+                    
+                    product = sanitizeProduct(product);
+                    const sizeObj = product.sizes.find(s => s.size === String(g.diff.size).trim());
+                    if (!sizeObj) {
+                        transaction.abort();
+                        reject(new Error(`Size '${g.diff.size}' not found for product '${product.name}'`));
+                        return;
+                    }
+                    
+                    if (sizeObj.stock + g.diff.diffQty < 0) {
+                        transaction.abort();
+                        reject(new Error(`OUT OF STOCK: Reverting would cause product ${product.name} (Size: ${g.diff.size}) to go out of stock. Available inventory is ${sizeObj.stock} but need to deduct ${Math.abs(g.diff.diffQty)}.`));
+                        return;
+                    }
+                    
+                    sizeObj.stock += g.diff.diffQty;
+                    product.updatedDate = new Date().toISOString();
+                    
+                    const existingInUpdate = productsToUpdate.find(p => p.code === product.code);
+                    if (!existingInUpdate) {
+                        productsToUpdate.push(product);
+                    }
+                    
+                    completedCount++;
+                    if (completedCount === gets.length) {
+                        productsToUpdate.forEach(p => productsStore.put(p));
+                        restoreBillData();
+                    }
+                };
+                
+                g.request.onerror = () => {
+                    transaction.abort();
+                    reject(g.request.error);
+                };
+            });
+            
+            function restoreBillData() {
+                const now = new Date();
+                const orig = bill.originalBill;
+                const diff = orig.grandTotal - bill.grandTotal; // naturally balances the exchange amount
+                
+                const historyEntry = {
+                    version: bill.editHistory ? bill.editHistory.length + 1 : 1,
+                    updatedAt: now.toISOString(),
+                    action: 'restore',
+                    exchangeDifference: diff,
+                    items: JSON.parse(JSON.stringify(bill.items)),
+                    subtotal: bill.subtotal,
+                    discountType: bill.discountType,
+                    discountValue: bill.discountValue,
+                    discountAmount: bill.discountAmount,
+                    grandTotal: bill.grandTotal,
+                    paymentMode: bill.paymentMode,
+                    paymentMethod: bill.paymentMethod || bill.paymentMode,
+                    cashAmount: bill.cashAmount,
+                    upiAmount: bill.upiAmount,
+                    customerMobile: bill.customerMobile,
+                    cashier: bill.cashier
+                };
+                
+                bill.editHistory = bill.editHistory || [];
+                bill.editHistory.push(historyEntry);
+                
+                bill.editCount = (bill.editCount || 0) + 1;
+                bill.updatedAt = now.toISOString();
+                
+                // Revert fields to original values
+                bill.items = JSON.parse(JSON.stringify(orig.items));
+                bill.subtotal = orig.subtotal;
+                bill.discountType = orig.discountType;
+                bill.discountValue = orig.discountValue;
+                bill.discountAmount = orig.discountAmount;
+                bill.grandTotal = orig.grandTotal;
+                bill.paymentMode = orig.paymentMode;
+                bill.paymentMethod = orig.paymentMethod || orig.paymentMode;
+                bill.cashAmount = orig.cashAmount !== undefined ? orig.cashAmount : (orig.paymentMode === 'Cash' ? orig.grandTotal : 0);
+                bill.upiAmount = orig.upiAmount !== undefined ? orig.upiAmount : (orig.paymentMode === 'UPI' ? orig.grandTotal : 0);
+                bill.customerMobile = orig.customerMobile;
+                bill.cashier = orig.cashier;
+                
+                bill.currentBill = {
+                    id: bill.id,
+                    date: bill.date,
+                    time: orig.time,
+                    dateTimestamp: orig.dateTimestamp,
+                    items: JSON.parse(JSON.stringify(bill.items)),
+                    subtotal: bill.subtotal,
+                    discountType: bill.discountType,
+                    discountValue: bill.discountValue,
+                    discountAmount: bill.discountAmount,
+                    gstPercent: 0,
+                    gstAmount: 0,
+                    grandTotal: bill.grandTotal,
+                    paymentMode: bill.paymentMode,
+                    paymentMethod: bill.paymentMethod,
+                    cashAmount: bill.cashAmount,
+                    upiAmount: bill.upiAmount,
+                    customerMobile: bill.customerMobile,
+                    cashier: bill.cashier
+                };
+                
+                sanitizeBillForStorage(bill);
+                billsStore.put(bill);
+                
+                logsStore.add({
+                    timestamp: now.toISOString(),
+                    action: 'Bill Restored to Original',
+                    details: `${billId} - Reverted back to original total of ₹${orig.grandTotal}`
+                });
+                
+                transaction.oncomplete = () => {
+                    resolve(bill);
+                };
+            }
+        };
+        
+        billReq.onerror = () => {
+            transaction.abort();
+            reject(billReq.error);
+        };
+    });
+}
+
+
+/**
  * Deletes a bill and RESTORES product stock sizes.
  * Uses request chaining to avoid microtask yields.
  */
@@ -619,13 +1095,13 @@ async function getDeletedBills() {
 }
 
 // ==========================================
-// DATA BACKUP & RESTORE HELPERS
+// DATA BACKUP & RESTORE
 // ==========================================
 
-async function exportRawStoresData() {
+async function exportBackupJSON() {
     const db = await initDB();
-    const stores = ['settings', 'products', 'bills', 'deleted_bills', 'audit_logs'];
-    const rawData = {};
+    const stores = Array.from(db.objectStoreNames);
+    const backupData = {};
 
     return new Promise((resolve, reject) => {
         const transaction = db.transaction(stores, 'readonly');
@@ -635,10 +1111,18 @@ async function exportRawStoresData() {
         stores.forEach(storeName => {
             const request = transaction.objectStore(storeName).getAll();
             request.onsuccess = () => {
-                rawData[storeName] = request.result;
+                backupData[storeName] = request.result;
                 completed++;
                 if (completed === stores.length) {
-                    resolve(rawData);
+                    // Include localStorage contents dynamically
+                    const localStoreData = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        localStoreData[key] = localStorage.getItem(key);
+                    }
+                    backupData['__localStorage__'] = localStoreData;
+                    
+                    resolve(JSON.stringify(backupData, null, 2));
                 }
             };
             request.onerror = () => {
@@ -648,26 +1132,48 @@ async function exportRawStoresData() {
     });
 }
 
-async function restoreRawStoresData(rawData) {
+async function restoreBackupJSON(jsonDataString) {
+    let backupData;
+    try {
+        backupData = JSON.parse(jsonDataString);
+    } catch (e) {
+        throw new Error('Invalid JSON format');
+    }
+
     const db = await initDB();
-    const stores = ['settings', 'products', 'bills', 'deleted_bills', 'audit_logs'];
-    const transaction = db.transaction(stores, 'readwrite');
+    const stores = Array.from(db.objectStoreNames);
+    
+    // Ensure we can clear/restore all object stores present in backup that exist in DB
+    const storesToRestore = stores.filter(s => Array.isArray(backupData[s]));
+    if (storesToRestore.length === 0) {
+        throw new Error('Backup contains no valid database stores.');
+    }
+
+    const transaction = db.transaction(storesToRestore, 'readwrite');
 
     return new Promise((resolve, reject) => {
         transaction.onerror = () => reject(transaction.error || new Error('Restore transaction failed'));
-        transaction.oncomplete = () => resolve(true);
+        transaction.oncomplete = () => {
+            // Restore localStorage contents dynamically if present
+            if (backupData['__localStorage__']) {
+                const localStoreData = backupData['__localStorage__'];
+                for (const key of Object.keys(localStoreData)) {
+                    localStorage.setItem(key, localStoreData[key]);
+                }
+            }
+            logActivity('Database Restored', 'System restored from file backup');
+            resolve(true);
+        };
 
         try {
-            for (const storeName of stores) {
+            for (const storeName of storesToRestore) {
                 const store = transaction.objectStore(storeName);
                 store.clear();
-                if (Array.isArray(rawData[storeName])) {
-                    for (const item of rawData[storeName]) {
-                        if (storeName === 'bills' || storeName === 'deleted_bills') {
-                            sanitizeBillForStorage(item);
-                        }
-                        store.put(item);
+                for (const item of backupData[storeName]) {
+                    if (storeName === 'bills' || storeName === 'deleted_bills') {
+                        sanitizeBillForStorage(item);
                     }
+                    store.put(item);
                 }
             }
         } catch (e) {

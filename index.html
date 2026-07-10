@@ -123,6 +123,17 @@
         <!-- 🧾 BILLING SECTION (DEDICATED BILLING SCREEN) -->
         <section id="bill-section" class="view-section">
             <div class="billing-layout">
+                <!-- EDIT BILL BANNER -->
+                <div id="edit-bill-banner" class="edit-bill-banner" style="display: none;">
+                    <div class="edit-banner-info">
+                        <span class="edit-icon">✏️</span>
+                        <span>Editing Bill <strong id="edit-bill-id-display">N/A</strong></span>
+                    </div>
+                    <div class="edit-banner-actions">
+                        <button type="button" class="btn-action-banner restore" id="btn-restore-bill">Restore Original</button>
+                        <button type="button" class="btn-action-banner cancel" id="btn-cancel-edit-bill">Cancel Edit</button>
+                    </div>
+                </div>
                 
                 <!-- CART COMPACT TABLE (TAKES AT LEAST 80% AREA OF FLOW) -->
                 <div class="cart-panel">
@@ -181,11 +192,13 @@
                     <div class="mobile-number-container">
                         <input type="tel" id="customer-mobile" class="input-styled" placeholder="Customer Mobile Number (Optional)" pattern="[0-9]*" inputmode="numeric" maxlength="10">
                     </div>
-
+                    
                     <!-- Cashier Selection -->
                     <div class="payment-mode-group">
-                        <div class="payment-toggle-buttons" id="cashier-toggle-container">
-                            <!-- Dynamically loaded Cashiers go here -->
+                        <div class="payment-toggle-buttons">
+                            <button type="button" class="btn-toggle-cashier active" data-cashier="Irfan">Irfan</button>
+                            <button type="button" class="btn-toggle-cashier" data-cashier="Faizan">Faizan</button>
+                            <button type="button" class="btn-toggle-cashier" data-cashier="Farhan">Farhan</button>
                         </div>
                     </div>
 
@@ -298,8 +311,16 @@
                             <div class="analytics-lbl">Items Sold</div>
                         </div>
                         <div class="analytics-card">
-                            <div id="report-aov" class="analytics-val">₹0.00</div>
-                            <div class="analytics-lbl">Avg Order</div>
+                            <div id="report-cash" class="analytics-val">₹0.00</div>
+                            <div class="analytics-lbl">Cash</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div id="report-upi" class="analytics-val">₹0.00</div>
+                            <div class="analytics-lbl">UPI</div>
+                        </div>
+                        <div class="analytics-card">
+                            <div id="report-exchange" class="analytics-val">₹0.00</div>
+                            <div class="analytics-lbl">Exchange Amount</div>
                         </div>
                     </div>
 
@@ -375,6 +396,7 @@
                                     <th>Customer Mobile</th>
                                     <th class="text-center">Items</th>
                                     <th class="text-right">Total</th>
+                                    <th>Last Updated</th>
                                     <th class="text-center">Actions</th>
                                 </tr>
                             </thead>
@@ -621,6 +643,44 @@
     </div>
 
     <!-- ==========================================
+       MODAL: EDIT BILL CONFIRMATION
+       ========================================== -->
+    <div id="edit-confirm-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 360px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Confirm Bill Update</h3>
+                <button type="button" class="modal-close" id="btn-close-edit-confirm">&times;</button>
+            </div>
+            <div class="modal-body form-grid">
+                <p class="text-muted text-sm">This will update inventory, revenue analytics and sales history. Do you want to continue?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="btn-cancel-edit-confirm">Cancel</button>
+                <button type="button" class="btn-primary" id="btn-save-edit-confirm" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem;">Update Bill</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: RESTORE BILL CONFIRMATION
+       ========================================== -->
+    <div id="restore-confirm-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 360px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Confirm Restore Bill</h3>
+                <button type="button" class="modal-close" id="btn-close-restore-confirm">&times;</button>
+            </div>
+            <div class="modal-body form-grid">
+                <p class="text-muted text-sm">Restoring this bill will revert products, inventory and exchange calculations back to the original bill. This action will update today's exchange analytics. Do you want to continue?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="btn-cancel-restore-confirm">Cancel</button>
+                <button type="button" class="btn-primary" id="btn-confirm-restore-bill" style="width: auto; height: 38px; padding: 0 16px; font-size: 0.85rem; background-color: var(--warning); box-shadow: none;">Restore Original</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
        MODAL: RESET ADMIN PASSWORD
        ========================================== -->
     <div id="reset-password-modal" class="modal-overlay">
@@ -666,9 +726,6 @@
     <script src="jsQR.js"></script>
     <script src="db.js"></script>
     <script src="scanner.js"></script>
-    <script src="NativeBridge.js"></script>
-    <script src="ReceiptManager.js"></script>
-    <script src="BackupManager.js"></script>
     <script src="app.js"></script>
 
     <!-- Theme management initialization script -->
