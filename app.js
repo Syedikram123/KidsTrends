@@ -10,7 +10,7 @@ const state = {
     paymentMode: 'Cash',        // 'Cash' | 'UPI'
     cashier: 'Irfan',           // Default selected cashier
     currentSection: 'home',
-    adminUnlocked: false,
+    adminUnlocked: true,
     adminTab: 'analytics',
     pendingAdminTab: null,      // Tracks target tab when prompting password
     allProducts: [],
@@ -139,38 +139,22 @@ function switchSection(sectionId) {
  * Forces admin password authentication if locked.
  */
 function handleAdminQuickAction(targetTab) {
-    if (state.adminUnlocked) {
-        state.adminTab = targetTab;
-        switchSection('admin');
-    } else {
-        state.pendingAdminTab = targetTab;
-        switchSection('admin');
-    }
+    state.adminTab = targetTab;
+    switchSection('admin');
 }
 
 function renderAdminView() {
     const adminContent = document.getElementById('admin-content');
     const adminLogin = document.getElementById('admin-login');
 
-    if (state.adminUnlocked) {
-        adminLogin.style.display = 'none';
-        adminContent.style.display = 'block';
-        
-        if (state.pendingAdminTab) {
-            state.adminTab = state.pendingAdminTab;
-            state.pendingAdminTab = null;
-        }
-        switchAdminTab(state.adminTab);
-    } else {
-        adminLogin.style.display = 'flex';
-        adminContent.style.display = 'none';
-        
-        const pwdInput = document.getElementById('admin-password-input');
-        if (pwdInput) {
-            pwdInput.value = '';
-            setTimeout(() => pwdInput.focus(), 100);
-        }
+    if (adminLogin) adminLogin.style.display = 'none';
+    if (adminContent) adminContent.style.display = 'block';
+    
+    if (state.pendingAdminTab) {
+        state.adminTab = state.pendingAdminTab;
+        state.pendingAdminTab = null;
     }
+    switchAdminTab(state.adminTab);
 }
 
 function switchAdminTab(tabName) {
@@ -863,9 +847,8 @@ async function handleAdminLoginSubmit(event) {
 }
 
 function lockAdmin() {
-    state.adminUnlocked = false;
-    showToast('Admin logged out', 'info');
-    renderAdminView();
+    switchSection('home');
+    showToast('Admin Panel Exited', 'info');
 }
 
 // ==========================================
@@ -2757,13 +2740,13 @@ async function updateCloudBackupStatusUI() {
             const isSynced = cloudBackups.some(b => b.hash === backup.hash);
 
             if (isSynced) {
-                pendingStatusEl.innerHTML = '<span style="color: #ffffff; font-weight: bold;">🟢 Cloud Synced</span>';
+                pendingStatusEl.innerHTML = '<span style="color: #ffffff; font-weight: bold;">🟢 Up to Date</span>';
                 pendingStatusEl.style.backgroundColor = 'var(--success)';
                 btnUpload.disabled = true;
                 btnUpload.style.opacity = '0.6';
                 btnUpload.style.cursor = 'not-allowed';
             } else {
-                pendingStatusEl.innerHTML = `<span style="color: #ffffff; font-weight: bold;">🟠 Update Available (${formatSize(backup.size)} Ready)</span>`;
+                pendingStatusEl.innerHTML = `<span style="color: #ffffff; font-weight: bold;">🟠 Available (${formatSize(backup.size)})</span>`;
                 pendingStatusEl.style.backgroundColor = 'var(--warning)';
                 btnUpload.disabled = false;
                 btnUpload.style.opacity = '1';

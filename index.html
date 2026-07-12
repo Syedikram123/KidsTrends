@@ -269,7 +269,7 @@
                 <!-- Admin Lock Header -->
                 <div class="admin-header-bar">
                     <h2 class="admin-sec-title">Admin Dashboard</h2>
-                    <button class="btn-secondary" id="btn-lock-admin">Lock Panel 🔒</button>
+                    <button class="btn-secondary" id="btn-lock-admin">Exit Panel</button>
                 </div>
 
                 <!-- Admin Sub Tabs Nav -->
@@ -427,8 +427,8 @@
                     <div class="settings-section-card" id="cloud-backup-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <h3 class="settings-sec-title" style="margin-bottom: 4px; border: none; padding-bottom: 0;">Cloud Backup ☁️</h3>
-                                <p class="text-muted text-sm" style="margin-bottom: 0;">Backup and restore your POS data securely to/from the cloud.</p>
+                                <h3 class="settings-sec-title" style="margin-bottom: 4px; border: none; padding-bottom: 0;">Digital Backup</h3>
+                                <p class="text-muted text-sm" style="margin-bottom: 0;">Backup and restore your sales data securely from any device.</p>
                             </div>
                             <div style="font-size: 1.5rem; color: var(--accent-primary); margin-left: 12px;">🔒</div>
                         </div>
@@ -734,20 +734,20 @@
     <div id="cloud-password-modal" class="modal-overlay">
         <div class="modal-container" style="max-width: 360px;">
             <div class="modal-header">
-                <h3 class="modal-title">Cloud Backup Lock</h3>
+                <h3 class="modal-title">Digital Backup lock</h3>
                 <button type="button" class="modal-close" id="btn-close-cloud-pw-modal">&times;</button>
             </div>
             <div class="modal-body form-grid">
                 <form id="cloud-password-form" class="form-grid">
                     <div class="form-group">
-                        <label for="cloud-password-input">Enter Cloud Password</label>
+                        <label for="cloud-password-input">Enter the Password</label>
                         <input type="password" id="cloud-password-input" class="input-styled" placeholder="••••••••" required autocomplete="current-password">
                         <div id="cloud-password-prompt-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;">Incorrect password.</div>
                         <div style="text-align: center; margin-top: 12px;">
                             <a href="#" id="cloud-forgot-pw-link" style="font-size: 0.85rem; color: var(--accent-primary); text-decoration: none; font-weight: 500; cursor: pointer;">Forgot Password?</a>
                         </div>
                     </div>
-                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK PANEL</button>
+                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK</button>
                 </form>
             </div>
         </div>
@@ -827,7 +827,7 @@
 
                 <!-- Latest Cloud Backups Table -->
                 <div>
-                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); border-bottom: 1px solid var(--border-color); padding-bottom: 4px;">Latest Cloud Backups</h4>
+                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); border-bottom: 1px solid var(--border-color); padding-bottom: 4px;">Latest Backups</h4>
                     <div class="table-wrapper" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
                         <table class="admin-table" style="font-size: 0.85rem; margin-bottom: 0;">
                             <thead>
@@ -848,7 +848,7 @@
 
                 <!-- Change Cloud Password Form -->
                 <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 4px;">
-                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 10px; color: var(--text-primary);">Change Cloud Password</h4>
+                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 10px; color: var(--text-primary);">Change the Password</h4>
                     <form id="cloud-change-pw-form" class="form-grid" style="gap: 8px;">
                         <div class="form-group">
                             <label for="cloud-pw-old" style="font-size: 0.8rem;">Current Password</label>
