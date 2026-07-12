@@ -423,6 +423,17 @@
                         </div>
                     </div>
 
+                    <!-- Cloud Backup Card -->
+                    <div class="settings-section-card" id="cloud-backup-card" style="cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3 class="settings-sec-title" style="margin-bottom: 4px; border: none; padding-bottom: 0;">Cloud Backup ☁️</h3>
+                                <p class="text-muted text-sm" style="margin-bottom: 0;">Backup and restore your POS data securely to/from the cloud.</p>
+                            </div>
+                            <div style="font-size: 1.5rem; color: var(--accent-primary); margin-left: 12px;">🔒</div>
+                        </div>
+                    </div>
+
                     <!-- Security Change Password code -->
                     <div class="settings-section-card">
                         <h3 class="settings-sec-title">Change Admin Password</h3>
@@ -718,12 +729,157 @@
     </div>
 
     <!-- ==========================================
+       MODAL: CLOUD BACKUP PASSWORD PROMPT
+       ========================================== -->
+    <div id="cloud-password-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 360px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Cloud Backup Lock</h3>
+                <button type="button" class="modal-close" id="btn-close-cloud-pw-modal">&times;</button>
+            </div>
+            <div class="modal-body form-grid">
+                <form id="cloud-password-form" class="form-grid">
+                    <div class="form-group">
+                        <label for="cloud-password-input">Enter Cloud Password</label>
+                        <input type="password" id="cloud-password-input" class="input-styled" placeholder="••••••••" required autocomplete="current-password">
+                        <div id="cloud-password-prompt-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;">Incorrect password.</div>
+                        <div style="text-align: center; margin-top: 12px;">
+                            <a href="#" id="cloud-forgot-pw-link" style="font-size: 0.85rem; color: var(--accent-primary); text-decoration: none; font-weight: 500; cursor: pointer;">Forgot Password?</a>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">UNLOCK PANEL</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: CLOUD BACKUP PASSWORD RECOVERY (FORGOT PASSWORD)
+       ========================================== -->
+    <div id="cloud-forgot-password-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 360px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Recover Cloud Password</h3>
+                <button type="button" class="modal-close" id="btn-close-cloud-forgot-modal">&times;</button>
+            </div>
+            <div class="modal-body form-grid">
+                <!-- Step 1: Recovery Code input -->
+                <form id="cloud-recovery-step-1-form" class="form-grid">
+                    <div class="form-group">
+                        <label for="cloud-recovery-code-input">Enter Recovery Code</label>
+                        <input type="text" id="cloud-recovery-code-input" class="input-styled" placeholder="Recovery Code" required autocomplete="off">
+                        <div id="cloud-recovery-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;">Incorrect recovery code.</div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">Verify Code</button>
+                </form>
+                
+                <!-- Step 2: New Password input -->
+                <form id="cloud-recovery-step-2-form" class="form-grid" style="display: none;">
+                    <div class="form-group">
+                        <label for="cloud-recovery-new-pw">New Cloud Password</label>
+                        <input type="password" id="cloud-recovery-new-pw" class="input-styled" placeholder="••••••••" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="cloud-recovery-confirm-pw">Confirm New Cloud Password</label>
+                        <input type="password" id="cloud-recovery-confirm-pw" class="input-styled" placeholder="••••••••" required>
+                        <div id="cloud-recovery-pw-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;"></div>
+                    </div>
+                    <button type="submit" class="btn-primary" style="height: 48px; padding: 0;">Save &amp; Update</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+       MODAL: CLOUD BACKUP PANEL
+       ========================================== -->
+    <div id="cloud-backup-panel-modal" class="modal-overlay">
+        <div class="modal-container" style="max-width: 460px;">
+            <div class="modal-header">
+                <h3 class="modal-title" style="display: flex; align-items: center; gap: 8px;">
+                    <span>☁️ Cloud Backup Panel</span>
+                </h3>
+                <button type="button" class="modal-close" id="btn-close-cloud-panel-modal">&times;</button>
+            </div>
+            <div class="modal-body form-grid" style="gap: 16px; padding: 20px;">
+                
+                <!-- Status Card (Pending and Last Upload) -->
+                <div style="background-color: var(--bg-tertiary); padding: 14px; border-radius: 12px; border: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 500; font-size: 0.9rem; color: var(--text-secondary);">Status:</span>
+                        <span id="cloud-backup-pending-status" style="font-weight: 700; font-size: 0.85rem; padding: 2px 8px; border-radius: 6px; background-color: var(--warning); color: #fff;">Calculating...</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 500; font-size: 0.9rem; color: var(--text-secondary);">Last Upload:</span>
+                        <span id="cloud-backup-last-upload" style="font-weight: 600; font-size: 0.9rem; color: var(--text-primary);">Never</span>
+                    </div>
+                </div>
+
+                <!-- Action buttons -->
+                <div class="form-grid" style="grid-template-columns: 1fr; gap: 8px;" id="cloud-backup-actions-container">
+                    <button class="btn-primary" id="btn-cloud-upload-now" style="height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: bold;">
+                        <span>Update Now 📤</span>
+                    </button>
+                    <button class="btn-secondary" id="btn-cloud-undo-restore" style="height: 44px; display: none; align-items: center; justify-content: center; gap: 8px; border-color: var(--warning); color: var(--warning); font-weight: bold; background: transparent;">
+                        <span>Undo Last Restore ↩️</span>
+                    </button>
+                </div>
+
+                <!-- Latest Cloud Backups Table -->
+                <div>
+                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); border-bottom: 1px solid var(--border-color); padding-bottom: 4px;">Latest Cloud Backups</h4>
+                    <div class="table-wrapper" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px;">
+                        <table class="admin-table" style="font-size: 0.85rem; margin-bottom: 0;">
+                            <thead>
+                                <tr>
+                                    <th>Date &amp; Time</th>
+                                    <th>Size</th>
+                                    <th class="text-center" style="width: 80px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cloud-backups-tbody">
+                                <tr>
+                                    <td colspan="3" class="text-center text-muted">No cloud backups found.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Change Cloud Password Form -->
+                <div style="border-top: 1px solid var(--border-color); padding-top: 14px; margin-top: 4px;">
+                    <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 10px; color: var(--text-primary);">Change Cloud Password</h4>
+                    <form id="cloud-change-pw-form" class="form-grid" style="gap: 8px;">
+                        <div class="form-group">
+                            <label for="cloud-pw-old" style="font-size: 0.8rem;">Current Password</label>
+                            <input type="password" id="cloud-pw-old" class="input-styled" style="height: 36px; font-size: 0.9rem;" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="cloud-pw-new" style="font-size: 0.8rem;">New Password</label>
+                            <input type="password" id="cloud-pw-new" class="input-styled" style="height: 36px; font-size: 0.9rem;" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="cloud-pw-confirm" style="font-size: 0.8rem;">Confirm New Password</label>
+                            <input type="password" id="cloud-pw-confirm" class="input-styled" style="height: 36px; font-size: 0.9rem;" required>
+                            <div id="cloud-change-pw-error" style="color: var(--danger); font-size: 0.8rem; margin-top: 4px; display: none;"></div>
+                        </div>
+                        <button type="submit" class="btn-primary" style="height: 40px; margin-top: 4px; padding: 0; font-size: 0.9rem;">Change Password</button>
+                    </form>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
        HIDDEN PRINT VIEW (MEDIA PRINT TARGET)
        ========================================== -->
     <div id="receipt-print-area"></div>
 
     <!-- JS Source Files -->
     <script src="jsQR.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
     <script src="db.js"></script>
     <script src="scanner.js"></script>
     <script src="app.js"></script>

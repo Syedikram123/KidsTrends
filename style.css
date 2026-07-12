@@ -1069,6 +1069,12 @@ header {
     margin-bottom: 16px;
 }
 
+#cloud-backup-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px var(--accent-glow);
+    border-color: var(--accent-primary);
+}
+
 .settings-sec-title {
     font-size: 1rem;
     font-weight: 700;

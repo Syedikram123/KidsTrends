@@ -16,17 +16,43 @@ const state = {
     allProducts: [],
     searchResults: [],
     activeBill: null,
-    editingBillId: null         // Tracks the bill ID currently being edited
+    editingBillId: null,        // Tracks the bill ID currently being edited
+    backupDirty: true,          // Tracks if DB backup needs regeneration
+    cachedBackupJSON: null,     // Holds cached backup JSON string
+    cachedBackupSize: 0,        // Holds cached backup size in bytes
+    cachedBackupHash: null      // Holds cached database SHA-256 hash string
 };
 
 // Default hashed password for "1234"
 const DEFAULT_PIN_HASH = '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4';
+
+let supabaseClient = null;
 
 // ==========================================
 // INITIALIZATION
 // ==========================================
 document.addEventListener('DOMContentLoaded', async () => {
     try {
+        // Initialize Supabase Client & Background Auth
+        if (typeof supabase !== 'undefined' && typeof SUPABASE_CONFIG !== 'undefined') {
+            try {
+                supabaseClient = supabase.createClient(SUPABASE_CONFIG.URL, SUPABASE_CONFIG.ANON_KEY);
+                const { data, error } = await supabaseClient.auth.signInWithPassword({
+                    email: SUPABASE_CONFIG.AUTH_EMAIL,
+                    password: SUPABASE_CONFIG.AUTH_PASSWORD
+                });
+                if (error) {
+                    console.error('Supabase authentication failed:', error.message);
+                } else {
+                    console.log('Supabase authenticated successfully. Session active.');
+                }
+            } catch (supaErr) {
+                console.error('Error setting up Supabase client:', supaErr);
+            }
+        } else {
+            console.warn('Supabase JS SDK or SUPABASE_CONFIG is missing.');
+        }
+
         // Initialize IndexedDB
         await initDB();
         
@@ -35,9 +61,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!storedPinHash || storedPinHash === '1635c8525afbae58c37bede3c9440844e9143727cc7c160bed665ec378d8a262') {
             await setSetting('admin_pin_hash', DEFAULT_PIN_HASH);
         }
+
+        // Ensure default Cloud Backup Password is seeded in Settings
+        const storedCloudHash = await getSetting('cloud_backup_pin_hash');
+        if (!storedCloudHash) {
+            await setSetting('cloud_backup_pin_hash', DEFAULT_PIN_HASH);
+        }
         
         // Load products cache (<50ms target)
         await refreshProductsCache();
+
+        // Initial database cache generation (pre-computes initial JSON and hash)
+        try {
+            await getOrGenerateLocalBackup();
+        } catch (e) {
+            console.error('Failed to generate initial database cache:', e);
+        }
         
         // Initialize UI event handlers
         setupEventListeners();
@@ -56,6 +95,8 @@ async function refreshProductsCache() {
     state.allProducts = await getAllProducts() || [];
     // Update Home dashboard and inventory widgets
     await updateHomeDashboard();
+    // Mark backup dirty when products or transactions change
+    markBackupDirty();
 }
 
 // ==========================================
@@ -1941,6 +1982,103 @@ function setupEventListeners() {
     document.getElementById('insight-lowstock').addEventListener('click', () => openInsightsDetail('lowstock'));
     document.getElementById('insight-fastselling').addEventListener('click', () => openInsightsDetail('fastselling'));
 
+    // Cloud Backup Event Listeners
+    const cloudBackupCard = document.getElementById('cloud-backup-card');
+    if (cloudBackupCard) {
+        cloudBackupCard.addEventListener('click', () => {
+            const modal = document.getElementById('cloud-password-modal');
+            if (modal) modal.style.display = 'flex';
+            const input = document.getElementById('cloud-password-input');
+            if (input) {
+                input.value = '';
+                input.focus();
+            }
+        });
+    }
+
+    const btnCloseCloudPW = document.getElementById('btn-close-cloud-pw-modal');
+    if (btnCloseCloudPW) {
+        btnCloseCloudPW.addEventListener('click', closeCloudPasswordModal);
+    }
+
+    const cloudForgotLink = document.getElementById('cloud-forgot-pw-link');
+    if (cloudForgotLink) {
+        cloudForgotLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            closeCloudPasswordModal();
+            const forgotModal = document.getElementById('cloud-forgot-password-modal');
+            if (forgotModal) {
+                forgotModal.style.display = 'flex';
+                const input = document.getElementById('cloud-recovery-code-input');
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                }
+            }
+        });
+    }
+
+    const cloudPWForm = document.getElementById('cloud-password-form');
+    if (cloudPWForm) {
+        cloudPWForm.addEventListener('submit', handleCloudPasswordSubmit);
+    }
+
+    const btnCloseCloudForgot = document.getElementById('btn-close-cloud-forgot-modal');
+    if (btnCloseCloudForgot) {
+        btnCloseCloudForgot.addEventListener('click', closeCloudForgotPasswordModal);
+    }
+
+    const cloudRecoveryStep1 = document.getElementById('cloud-recovery-step-1-form');
+    if (cloudRecoveryStep1) {
+        cloudRecoveryStep1.addEventListener('submit', handleCloudRecoveryStep1Submit);
+    }
+
+    const cloudRecoveryStep2 = document.getElementById('cloud-recovery-step-2-form');
+    if (cloudRecoveryStep2) {
+        cloudRecoveryStep2.addEventListener('submit', handleCloudRecoveryStep2Submit);
+    }
+
+    const btnCloseCloudPanel = document.getElementById('btn-close-cloud-panel-modal');
+    if (btnCloseCloudPanel) {
+        btnCloseCloudPanel.addEventListener('click', closeCloudBackupPanelModal);
+    }
+
+    const btnCloudUpload = document.getElementById('btn-cloud-upload-now');
+    if (btnCloudUpload) {
+        btnCloudUpload.addEventListener('click', handleCloudUploadNowClick);
+    }
+
+    const btnCloudUndo = document.getElementById('btn-cloud-undo-restore');
+    if (btnCloudUndo) {
+        btnCloudUndo.addEventListener('click', handleCloudUndoRestoreClick);
+    }
+
+    const cloudChangePWForm = document.getElementById('cloud-change-pw-form');
+    if (cloudChangePWForm) {
+        cloudChangePWForm.addEventListener('submit', handleCloudChangePWSubmit);
+    }
+
+    const cloudPWModal = document.getElementById('cloud-password-modal');
+    if (cloudPWModal) {
+        cloudPWModal.addEventListener('click', (e) => {
+            if (e.target === cloudPWModal) closeCloudPasswordModal();
+        });
+    }
+
+    const cloudForgotModal = document.getElementById('cloud-forgot-password-modal');
+    if (cloudForgotModal) {
+        cloudForgotModal.addEventListener('click', (e) => {
+            if (e.target === cloudForgotModal) closeCloudForgotPasswordModal();
+        });
+    }
+
+    const cloudPanelModal = document.getElementById('cloud-backup-panel-modal');
+    if (cloudPanelModal) {
+        cloudPanelModal.addEventListener('click', (e) => {
+            if (e.target === cloudPanelModal) closeCloudBackupPanelModal();
+        });
+    }
+
     // Network status
     window.addEventListener('online', updateNetworkStatus);
     window.addEventListener('offline', updateNetworkStatus);
@@ -2283,4 +2421,835 @@ function drawCanvasDivider(ctx, x1, x2, y) {
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.setLineDash([]);
+}
+
+// ==========================================
+// CLOUD BACKUP SYSTEM (PHASE 1)
+// ==========================================
+
+function markBackupDirty() {
+    state.backupDirty = true;
+    state.cachedBackupJSON = null;
+    state.cachedBackupSize = 0;
+    state.cachedBackupHash = null;
+}
+
+/**
+ * Recursively generates a stable, canonical JSON string representation of an object.
+ * This guarantees key-order independence for identical business data payloads.
+ */
+function canonicalStringify(obj) {
+    if (obj === null || typeof obj !== 'object') {
+        return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+        return '[' + obj.map(item => canonicalStringify(item)).join(',') + ']';
+    }
+    const sortedKeys = Object.keys(obj).sort();
+    return '{' + sortedKeys.map(key => {
+        return JSON.stringify(key) + ':' + canonicalStringify(obj[key]);
+    }).join(',') + '}';
+}
+
+/**
+ * Calculates a SHA-256 hash of the permanent business data in the backup JSON.
+ * This filters out backup-system-specific logs and metadata to ensure hash stability.
+ */
+async function getDatabaseHash(jsonString) {
+    try {
+        const parsed = JSON.parse(jsonString);
+        let dataObj = parsed.data || parsed;
+        
+        // Deep copy business data to filter out system logs
+        let businessData = JSON.parse(JSON.stringify(dataObj));
+        
+        // 1. Exclude cloud/backup audit logs from the hash calculation
+        if (businessData.audit_logs && Array.isArray(businessData.audit_logs)) {
+            const excludeActions = [
+                'Cloud Backup Saved',
+                'Cloud Backup Rotated',
+                'Cloud Backup Restored',
+                'Safety Rollback Created',
+                'Cloud PW Changed',
+                'Cloud PW Recovered'
+            ];
+            businessData.audit_logs = businessData.audit_logs.filter(log => !excludeActions.includes(log.action));
+        }
+
+        // 2. Exclude temporary or runtime keys from __localStorage__
+        if (businessData.__localStorage__) {
+            const keys = Object.keys(businessData.__localStorage__);
+            keys.forEach(k => {
+                if (k.startsWith('sb-') || 
+                    k.startsWith('supabase.') ||
+                    k === 'kids_trends_cloud_backups' ||
+                    k === 'kids_trends_cloud_last_upload' ||
+                    k === 'kids_trends_restore_undo') {
+                    delete businessData.__localStorage__[k];
+                }
+            });
+        }
+        
+        // Generate canonical sorted JSON string for stable hashing
+        const canonicalStr = canonicalStringify(businessData);
+        return await sha256(canonicalStr);
+    } catch (e) {
+        console.error('Error generating database hash:', e);
+        return '';
+    }
+}
+
+/**
+ * CloudStorageService connected to Supabase Storage and Database Metadata
+ */
+const CloudStorageService = {
+    /**
+     * Lists the latest cloud backups (up to 5) from the database metadata table
+     * @returns {Promise<Array>}
+     */
+    async listBackups() {
+        if (!supabaseClient) {
+            throw new Error('Supabase client is not initialized.');
+        }
+        
+        const { data, error } = await supabaseClient
+            .from('cloud_backups')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(5);
+            
+        if (error) {
+            console.error('Failed to list backups from Supabase:', error);
+            throw new Error(error.message);
+        }
+        
+        return (data || []).map(row => {
+            const timestampStr = row.filename.replace('backup_', '').replace('.json', ''); // e.g. "2026-07-12_14-04-57"
+            return {
+                filename: row.filename,
+                timestamp: timestampStr,
+                createdAt: row.created_at,
+                size: row.size,
+                hash: row.hash
+            };
+        });
+    },
+
+    /**
+     * Uploads a new backup file to Supabase Storage and records metadata in database
+     * @param {string} filename 
+     * @param {string} content (JSON text)
+     * @returns {Promise<object>}
+     */
+    async uploadBackup(filename, content) {
+        if (!supabaseClient) {
+            throw new Error('Supabase client is not initialized.');
+        }
+
+        const sizeBytes = new Blob([content]).size;
+        
+        // Calculate hash of the business data section
+        const dataHash = await getDatabaseHash(content);
+        
+        // 1. Upload the file to Supabase Storage
+        const fileBody = new Blob([content], { type: 'application/json' });
+        const { data: uploadData, error: uploadError } = await supabaseClient.storage
+            .from(SUPABASE_CONFIG.BUCKET)
+            .upload(filename, fileBody, {
+                contentType: 'application/json',
+                upsert: true
+            });
+            
+        if (uploadError) {
+            console.error('Failed to upload file to Supabase Storage:', uploadError);
+            throw new Error(uploadError.message);
+        }
+        
+        // 2. Insert metadata into the database
+        const { error: dbError } = await supabaseClient
+            .from('cloud_backups')
+            .insert([
+                {
+                    filename: filename,
+                    hash: dataHash,
+                    size: sizeBytes,
+                    created_at: new Date().toISOString()
+                }
+            ]);
+            
+        if (dbError) {
+            console.error('Failed to write metadata to Supabase DB:', dbError);
+            // Cleanup uploaded file on DB write failure to keep state consistent
+            await supabaseClient.storage.from(SUPABASE_CONFIG.BUCKET).remove([filename]);
+            throw new Error(dbError.message);
+        }
+        
+        localStorage.setItem('kids_trends_cloud_last_upload', new Date().toISOString());
+        return { success: true, filename: filename };
+    },
+
+    /**
+     * Downloads backup content from Supabase Storage by filename
+     * @param {string} filename 
+     * @returns {Promise<string>}
+     */
+    async downloadBackup(filename) {
+        if (!supabaseClient) {
+            throw new Error('Supabase client is not initialized.');
+        }
+        
+        const { data, error } = await supabaseClient.storage
+            .from(SUPABASE_CONFIG.BUCKET)
+            .download(filename);
+            
+        if (error) {
+            console.error('Failed to download file from Supabase:', error);
+            throw new Error(error.message);
+        }
+        
+        const text = await data.text();
+        return text;
+    },
+
+    /**
+     * Deletes the specified backup from Storage and the database metadata table
+     * @param {string} filename 
+     * @returns {Promise<boolean>}
+     */
+    async deleteBackup(filename) {
+        if (!supabaseClient) {
+            throw new Error('Supabase client is not initialized.');
+        }
+        
+        // 1. Remove file from storage
+        const { error: storageError } = await supabaseClient.storage
+            .from(SUPABASE_CONFIG.BUCKET)
+            .remove([filename]);
+            
+        if (storageError) {
+            console.warn('Failed to remove backup from Storage, proceeding with database delete:', storageError.message);
+        }
+        
+        // 2. Remove row from database
+        const { error: dbError } = await supabaseClient
+            .from('cloud_backups')
+            .delete()
+            .eq('filename', filename);
+            
+        if (dbError) {
+            console.error('Failed to delete metadata from Supabase DB:', dbError);
+            throw new Error(dbError.message);
+        }
+        
+        return true;
+    }
+};
+
+/**
+ * Generates the current backup filename using timestamp
+ */
+function generateBackupFilename() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `backup_${year}-${month}-${day}_${hours}-${minutes}-${seconds}.json`;
+}
+
+/**
+ * Formats bytes to KB
+ */
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    const kb = bytes / 1024;
+    return kb.toFixed(1) + ' KB';
+}
+
+/**
+ * Formats date and time: 11/07/26 01:05 AM
+ */
+function formatDateTime(dateInput) {
+    if (!dateInput) return 'Never';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return 'Never';
+    
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = String(d.getFullYear()).slice(-2);
+    
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // the hour '0' should be '12'
+    const strHours = String(hours).padStart(2, '0');
+    
+    return `${day}/${month}/${year} ${strHours}:${minutes} ${ampm}`;
+}
+
+/**
+ * Generates/caches current local backup JSON and updates the size, content, and hash.
+ */
+async function getOrGenerateLocalBackup() {
+    if (state.backupDirty || !state.cachedBackupJSON) {
+        const json = await exportBackupJSON();
+        const size = new Blob([json]).size;
+        const hash = await getDatabaseHash(json);
+
+        state.cachedBackupJSON = json;
+        state.cachedBackupSize = size;
+        state.cachedBackupHash = hash;
+        state.backupDirty = false;
+    }
+    return {
+        json: state.cachedBackupJSON,
+        size: state.cachedBackupSize,
+        hash: state.cachedBackupHash
+    };
+}
+
+/**
+ * Verifies if the backup JSON contains meaningful data
+ */
+function verifyBackupHasMeaningfulData(jsonString) {
+    try {
+        const parsed = JSON.parse(jsonString);
+        let data = parsed.data || parsed; // support both legacy and wrapped structures
+        const productsCount = (data.products || []).length;
+        const billsCount = (data.bills || []).length;
+        // If there are no products and no bills, it's considered empty of meaningful business data
+        return (productsCount > 0 || billsCount > 0);
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Updates the Cloud Backup status UI (Cloud Synced, Update Available, Empty Database)
+ */
+async function updateCloudBackupStatusUI() {
+    const pendingStatusEl = document.getElementById('cloud-backup-pending-status');
+    const lastUploadEl = document.getElementById('cloud-backup-last-upload');
+    const btnUpload = document.getElementById('btn-cloud-upload-now');
+
+    if (!pendingStatusEl || !lastUploadEl || !btnUpload) return;
+
+    try {
+        // 1. Get current backup data
+        const backup = await getOrGenerateLocalBackup();
+        
+        // 2. Verify if it has meaningful data
+        const hasData = verifyBackupHasMeaningfulData(backup.json);
+        if (!hasData) {
+            pendingStatusEl.innerHTML = '<span style="color: #cbd5e1; font-weight: bold;">⚪ Empty Database</span>';
+            pendingStatusEl.style.backgroundColor = 'var(--text-muted)';
+            btnUpload.disabled = true;
+            btnUpload.style.opacity = '0.6';
+            btnUpload.style.cursor = 'not-allowed';
+        } else {
+            // 3. Fetch cloud backup list
+            const cloudBackups = await CloudStorageService.listBackups();
+            
+            // 4. Check if current database hash matches ANY backup in the cloud list
+            const isSynced = cloudBackups.some(b => b.hash === backup.hash);
+
+            if (isSynced) {
+                pendingStatusEl.innerHTML = '<span style="color: #ffffff; font-weight: bold;">🟢 Cloud Synced</span>';
+                pendingStatusEl.style.backgroundColor = 'var(--success)';
+                btnUpload.disabled = true;
+                btnUpload.style.opacity = '0.6';
+                btnUpload.style.cursor = 'not-allowed';
+            } else {
+                pendingStatusEl.innerHTML = `<span style="color: #ffffff; font-weight: bold;">🟠 Update Available (${formatSize(backup.size)} Ready)</span>`;
+                pendingStatusEl.style.backgroundColor = 'var(--warning)';
+                btnUpload.disabled = false;
+                btnUpload.style.opacity = '1';
+                btnUpload.style.cursor = 'pointer';
+            }
+        }
+
+        // 5. Update last upload timestamp
+        const lastUploadTime = localStorage.getItem('kids_trends_cloud_last_upload');
+        lastUploadEl.innerText = formatDateTime(lastUploadTime);
+
+    } catch (e) {
+        console.error('Error updating status UI:', e);
+        pendingStatusEl.innerText = 'Status Error';
+        pendingStatusEl.style.backgroundColor = 'var(--danger)';
+    }
+}
+
+/**
+ * Renders the cloud backups list table
+ */
+async function renderCloudBackupsTable() {
+    const tbody = document.getElementById('cloud-backups-tbody');
+    if (!tbody) return;
+
+    try {
+        const list = await CloudStorageService.listBackups();
+        if (list.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">No cloud backups found.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = '';
+        list.slice(0, 5).forEach(backup => {
+            const tr = document.createElement('tr');
+            
+            // Date & Time Column
+            const tdDate = document.createElement('td');
+            tdDate.innerText = formatDateTime(backup.createdAt);
+            tr.appendChild(tdDate);
+
+            // Size Column
+            const tdSize = document.createElement('td');
+            tdSize.innerText = formatSize(backup.size);
+            tr.appendChild(tdSize);
+
+            // Action Column (Restore)
+            const tdAction = document.createElement('td');
+            tdAction.className = 'text-center';
+            const btnRestore = document.createElement('button');
+            btnRestore.className = 'btn-secondary';
+            btnRestore.style.padding = '4px 8px';
+            btnRestore.style.fontSize = '0.75rem';
+            btnRestore.style.height = 'auto';
+            btnRestore.innerText = 'Restore';
+            btnRestore.addEventListener('click', () => handleCloudRestoreClick(backup.filename));
+            tdAction.appendChild(btnRestore);
+            tr.appendChild(tdAction);
+
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted" style="color: var(--danger);">Failed to load backups: ${e.message}</td></tr>`;
+    }
+}
+
+/**
+ * Checks for a safety rollback in IndexedDB and updates the Undo button visibility
+ */
+async function checkHasRollback() {
+    const btnUndo = document.getElementById('btn-cloud-undo-restore');
+    if (!btnUndo) return;
+
+    try {
+        const rollbackContent = await getRollbackBackup();
+        if (rollbackContent) {
+            btnUndo.style.display = 'flex';
+        } else {
+            btnUndo.style.display = 'none';
+        }
+    } catch (e) {
+        console.error('Failed to check rollback:', e);
+        btnUndo.style.display = 'none';
+    }
+}
+
+/**
+ * Opens the cloud backup panel
+ */
+async function openCloudBackupPanel() {
+    // Hide password modals if open
+    closeCloudPasswordModal();
+    closeCloudForgotPasswordModal();
+
+    // Show the cloud backup panel modal
+    const panelModal = document.getElementById('cloud-backup-panel-modal');
+    if (panelModal) {
+        panelModal.style.display = 'flex';
+    }
+    
+    // Refresh the contents
+    await updateCloudBackupStatusUI();
+    await renderCloudBackupsTable();
+    await checkHasRollback();
+}
+
+/**
+ * Hides all cloud-related modals
+ */
+function closeCloudPasswordModal() {
+    const modal = document.getElementById('cloud-password-modal');
+    if (modal) modal.style.display = 'none';
+    const input = document.getElementById('cloud-password-input');
+    if (input) input.value = '';
+    const err = document.getElementById('cloud-password-prompt-error');
+    if (err) err.style.display = 'none';
+}
+
+function closeCloudForgotPasswordModal() {
+    const modal = document.getElementById('cloud-forgot-password-modal');
+    if (modal) modal.style.display = 'none';
+    
+    const recInput = document.getElementById('cloud-recovery-code-input');
+    if (recInput) recInput.value = '';
+    
+    const npInput = document.getElementById('cloud-recovery-new-pw');
+    if (npInput) npInput.value = '';
+    
+    const cpInput = document.getElementById('cloud-recovery-confirm-pw');
+    if (cpInput) cpInput.value = '';
+    
+    const err = document.getElementById('cloud-recovery-error');
+    if (err) err.style.display = 'none';
+    
+    const pwErr = document.getElementById('cloud-recovery-pw-error');
+    if (pwErr) pwErr.style.display = 'none';
+    
+    const step1 = document.getElementById('cloud-recovery-step-1-form');
+    if (step1) step1.style.display = 'grid';
+    
+    const step2 = document.getElementById('cloud-recovery-step-2-form');
+    if (step2) step2.style.display = 'none';
+}
+
+function closeCloudBackupPanelModal() {
+    const modal = document.getElementById('cloud-backup-panel-modal');
+    if (modal) modal.style.display = 'none';
+    
+    // Clear forms inside it
+    const oInput = document.getElementById('cloud-pw-old');
+    if (oInput) oInput.value = '';
+    
+    const nInput = document.getElementById('cloud-pw-new');
+    if (nInput) nInput.value = '';
+    
+    const cInput = document.getElementById('cloud-pw-confirm');
+    if (cInput) cInput.value = '';
+    
+    const err = document.getElementById('cloud-change-pw-error');
+    if (err) err.style.display = 'none';
+}
+
+/**
+ * Submits the verification password form
+ */
+async function handleCloudPasswordSubmit(event) {
+    event.preventDefault();
+    const input = document.getElementById('cloud-password-input');
+    const errorDiv = document.getElementById('cloud-password-prompt-error');
+    if (!input || !errorDiv) return;
+
+    errorDiv.style.display = 'none';
+
+    try {
+        const hash = await sha256(input.value.trim());
+        const storedHash = await getSetting('cloud_backup_pin_hash', DEFAULT_PIN_HASH);
+
+        if (hash === storedHash) {
+            openCloudBackupPanel();
+        } else {
+            errorDiv.style.display = 'block';
+            input.value = '';
+            input.focus();
+        }
+    } catch (e) {
+        showToast('Security verification failed: ' + e.message, 'error');
+    }
+}
+
+/**
+ * Submits Change Password form
+ */
+async function handleCloudChangePWSubmit(event) {
+    event.preventDefault();
+    const oldPW = document.getElementById('cloud-pw-old').value.trim();
+    const newPW = document.getElementById('cloud-pw-new').value.trim();
+    const confirmPW = document.getElementById('cloud-pw-confirm').value.trim();
+    const errorDiv = document.getElementById('cloud-change-pw-error');
+
+    if (errorDiv) errorDiv.style.display = 'none';
+
+    if (!oldPW || !newPW || !confirmPW) {
+        showToast('Please fill all password fields.', 'warning');
+        return;
+    }
+
+    if (newPW !== confirmPW) {
+        if (errorDiv) {
+            errorDiv.innerText = 'New passwords do not match.';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    try {
+        const storedHash = await getSetting('cloud_backup_pin_hash', DEFAULT_PIN_HASH);
+        const oldHash = await sha256(oldPW);
+
+        if (oldHash !== storedHash) {
+            if (errorDiv) {
+                errorDiv.innerText = 'Incorrect current password.';
+                errorDiv.style.display = 'block';
+            }
+            return;
+        }
+
+        const newHash = await sha256(newPW);
+        await setSetting('cloud_backup_pin_hash', newHash);
+        showToast('Cloud password updated successfully!', 'success');
+        await logActivity('Cloud PW Changed', 'Cloud Backup security password updated');
+        
+        // Reset inputs
+        document.getElementById('cloud-pw-old').value = '';
+        document.getElementById('cloud-pw-new').value = '';
+        document.getElementById('cloud-pw-confirm').value = '';
+    } catch (e) {
+        showToast('Change password failed: ' + e.message, 'error');
+    }
+}
+
+/**
+ * Handles forgot password recovery code verification
+ */
+function handleCloudRecoveryStep1Submit(event) {
+    event.preventDefault();
+    const input = document.getElementById('cloud-recovery-code-input');
+    const errorDiv = document.getElementById('cloud-recovery-error');
+    
+    if (errorDiv) errorDiv.style.display = 'none';
+
+    if (input && input.value.trim() === 'Recover@1') {
+        document.getElementById('cloud-recovery-step-1-form').style.display = 'none';
+        document.getElementById('cloud-recovery-step-2-form').style.display = 'grid';
+        const newPWInput = document.getElementById('cloud-recovery-new-pw');
+        if (newPWInput) newPWInput.focus();
+    } else {
+        if (errorDiv) errorDiv.style.display = 'block';
+    }
+}
+
+/**
+ * Handles forgot password new password submission
+ */
+async function handleCloudRecoveryStep2Submit(event) {
+    event.preventDefault();
+    const newPW = document.getElementById('cloud-recovery-new-pw').value.trim();
+    const confirmPW = document.getElementById('cloud-recovery-confirm-pw').value.trim();
+    const errorDiv = document.getElementById('cloud-recovery-pw-error');
+
+    if (errorDiv) errorDiv.style.display = 'none';
+
+    if (!newPW || !confirmPW) {
+        if (errorDiv) {
+            errorDiv.innerText = 'Passwords cannot be empty.';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    if (newPW !== confirmPW) {
+        if (errorDiv) {
+            errorDiv.innerText = 'Passwords do not match.';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+
+    try {
+        const newHash = await sha256(newPW);
+        await setSetting('cloud_backup_pin_hash', newHash);
+        await logActivity('Cloud PW Recovered', 'Cloud password reset using Recovery Code');
+        showToast('Cloud password reset successfully!', 'success');
+        
+        // Open the panel
+        openCloudBackupPanel();
+    } catch (e) {
+        showToast('Password recovery failed: ' + e.message, 'error');
+    }
+}
+
+/**
+ * Handles Cloud "Update Now" click
+ */
+async function handleCloudUploadNowClick() {
+    const promptPassword = prompt('Enter Cloud Password to verify backup upload:');
+    if (!promptPassword) return;
+
+    let logIds = [];
+    try {
+        const passwordHash = await sha256(promptPassword.trim());
+        const storedHash = await getSetting('cloud_backup_pin_hash', DEFAULT_PIN_HASH);
+        if (passwordHash !== storedHash) {
+            showToast('Incorrect Cloud Password. Upload cancelled.', 'error');
+            return;
+        }
+
+        if (confirm('Upload latest backup to Cloud? If Cloud already contains 5 backups, the oldest backup will be removed after successful upload.')) {
+            const btnUpload = document.getElementById('btn-cloud-upload-now');
+            if (btnUpload) {
+                btnUpload.disabled = true;
+                btnUpload.innerText = 'Uploading... ⏳';
+            }
+
+            // 1. Get current cloud backup list to check if we will exceed the limit of 5
+            const cloudBackups = await CloudStorageService.listBackups();
+            const willRotate = cloudBackups.length >= 5;
+            
+            // 2. Add log entries to IndexedDB BEFORE exporting, so they are part of the uploaded backup.
+            // This guarantees local and cloud hashes match!
+            if (willRotate) {
+                const oldest = cloudBackups[cloudBackups.length - 1];
+                const rotateLogId = await logActivity('Cloud Backup Rotated', `Deleted oldest backup: ${oldest.filename}`);
+                logIds.push(rotateLogId);
+            }
+            const filename = generateBackupFilename();
+            const saveLogId = await logActivity('Cloud Backup Saved', `File: ${filename}`);
+            logIds.push(saveLogId);
+            
+            // Mark dirty so the JSON gets regenerated containing these new logs
+            markBackupDirty();
+
+            // A. Generate JSON
+            const backup = await getOrGenerateLocalBackup();
+
+            // B. Verify JSON has meaningful data
+            const hasData = verifyBackupHasMeaningfulData(backup.json);
+            if (!hasData) {
+                showToast('Upload failed: Database contains no meaningful data.', 'error');
+                // Rollback the logs we added
+                for (const id of logIds) {
+                    await deleteAuditLog(id);
+                }
+                logIds = [];
+                markBackupDirty();
+                if (btnUpload) {
+                    btnUpload.disabled = false;
+                    btnUpload.innerText = 'Update Now 📤';
+                }
+                return;
+            }
+
+            // C. Upload
+            const result = await CloudStorageService.uploadBackup(filename, backup.json);
+
+            // D. Verify success
+            if (result && result.success) {
+                showToast('Backup successfully uploaded to Cloud!', 'success');
+
+                // E. If we rotated, delete the oldest backup from simulated storage
+                if (willRotate) {
+                    const oldest = cloudBackups[cloudBackups.length - 1];
+                    await CloudStorageService.deleteBackup(oldest.filename);
+                }
+
+                // F. Refresh Backup List and UI status
+                await updateCloudBackupStatusUI();
+                await renderCloudBackupsTable();
+            } else {
+                showToast('Upload verification failed.', 'error');
+                // Rollback logs on failure
+                for (const id of logIds) {
+                    await deleteAuditLog(id);
+                }
+                logIds = [];
+                markBackupDirty();
+            }
+
+            if (btnUpload) {
+                btnUpload.disabled = false;
+                btnUpload.innerText = 'Update Now 📤';
+            }
+        }
+    } catch (e) {
+        showToast('Upload failed: ' + e.message, 'error');
+        // Rollback logs on failure
+        for (const id of logIds) {
+            try {
+                await deleteAuditLog(id);
+            } catch (deleteErr) {
+                console.error('Failed to clean up log:', deleteErr);
+            }
+        }
+        markBackupDirty();
+        const btnUpload = document.getElementById('btn-cloud-upload-now');
+        if (btnUpload) {
+            btnUpload.disabled = false;
+            btnUpload.innerText = 'Update Now 📤';
+        }
+    }
+}
+
+/**
+ * Handles Restore backup click
+ */
+async function handleCloudRestoreClick(filename) {
+    const promptPassword = prompt('Enter Cloud Password to authorize database restore:');
+    if (!promptPassword) return;
+
+    try {
+        const passwordHash = await sha256(promptPassword.trim());
+        const storedHash = await getSetting('cloud_backup_pin_hash', DEFAULT_PIN_HASH);
+        if (passwordHash !== storedHash) {
+            showToast('Incorrect Cloud Password. Restore cancelled.', 'error');
+            return;
+        }
+
+        if (confirm('Restore this backup? Current local data will be replaced.')) {
+            // A. Create safety rollback backup in IndexedDB
+            const currentBackupJSON = await exportBackupJSON();
+            await saveRollbackBackup(currentBackupJSON);
+            await logActivity('Safety Rollback Created', 'Temporary backup created before restoring cloud version');
+
+            // B. Download backup from cloud
+            const content = await CloudStorageService.downloadBackup(filename);
+
+            // C. Import / Apply it
+            await restoreBackupJSON(content);
+            
+            showToast('Database successfully restored from Cloud! Reloading...', 'success');
+            await logActivity('Cloud Backup Restored', `Restored file: ${filename}`);
+
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        }
+    } catch (e) {
+        showToast('Restore failed: ' + e.message, 'error');
+    }
+}
+
+/**
+ * Handles Rollback undo restore action
+ */
+async function handleCloudUndoRestoreClick() {
+    const promptPassword = prompt('Enter Cloud Password to authorize Undo Restore:');
+    if (!promptPassword) return;
+
+    try {
+        const passwordHash = await sha256(promptPassword.trim());
+        const storedHash = await getSetting('cloud_backup_pin_hash', DEFAULT_PIN_HASH);
+        if (passwordHash !== storedHash) {
+            showToast('Incorrect Cloud Password. Undo cancelled.', 'error');
+            return;
+        }
+
+        if (confirm('Are you sure you want to undo the last restore? This will revert the database to the exact state before the restore.')) {
+            const rollbackContent = await getRollbackBackup();
+            if (!rollbackContent) {
+                showToast('Undo failed: No rollback backup found.', 'error');
+                return;
+            }
+
+            // Restore the rollback
+            await restoreBackupJSON(rollbackContent);
+            
+            // Clear the rollback
+            await clearRollbackBackup();
+
+            showToast('Database successfully reverted to pre-restore state! Reloading...', 'success');
+            await logActivity('Restore Rolled Back', 'Database reverted using safety undo rollback');
+
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        }
+    } catch (e) {
+        showToast('Undo failed: ' + e.message, 'error');
+    }
 }

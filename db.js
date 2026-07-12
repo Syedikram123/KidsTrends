@@ -1,7 +1,7 @@
 // KID'S TRENDS POS - INDEXEDDB DATABASE WRAPPER
 
 const DB_NAME = 'KidsTrendsDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbInstance = null;
 
@@ -43,6 +43,11 @@ function initDB() {
             // Audit Logs store (Key: id, autoIncrement)
             if (!db.objectStoreNames.contains('audit_logs')) {
                 db.createObjectStore('audit_logs', { keyPath: 'id', autoIncrement: true });
+            }
+
+            // Rollback backups store (for safety restore rollback)
+            if (!db.objectStoreNames.contains('rollback_backups')) {
+                db.createObjectStore('rollback_backups', { keyPath: 'id' });
             }
         };
 
@@ -1100,7 +1105,8 @@ async function getDeletedBills() {
 
 async function exportBackupJSON() {
     const db = await initDB();
-    const stores = Array.from(db.objectStoreNames);
+    // Exclude rollback_backups from stores to back up
+    const stores = Array.from(db.objectStoreNames).filter(s => s !== 'rollback_backups');
     const backupData = {};
 
     return new Promise((resolve, reject) => {
@@ -1114,15 +1120,32 @@ async function exportBackupJSON() {
                 backupData[storeName] = request.result;
                 completed++;
                 if (completed === stores.length) {
-                    // Include localStorage contents dynamically
+                    // Include localStorage contents dynamically, excluding cloud and auth metadata
                     const localStoreData = {};
                     for (let i = 0; i < localStorage.length; i++) {
                         const key = localStorage.key(i);
-                        localStoreData[key] = localStorage.getItem(key);
+                        const isExcluded = key.startsWith('sb-') || 
+                                           key.startsWith('supabase.') ||
+                                           key === 'kids_trends_cloud_backups' ||
+                                           key === 'kids_trends_cloud_last_upload' ||
+                                           key === 'kids_trends_restore_undo';
+                        if (!isExcluded) {
+                            localStoreData[key] = localStorage.getItem(key);
+                        }
                     }
                     backupData['__localStorage__'] = localStoreData;
                     
-                    resolve(JSON.stringify(backupData, null, 2));
+                    const wrappedData = {
+                        metadata: {
+                            backupVersion: "1.0",
+                            createdAt: new Date().toISOString(),
+                            appVersion: "1.0.0",
+                            databaseVersion: DB_VERSION
+                        },
+                        data: backupData
+                    };
+                    
+                    resolve(JSON.stringify(wrappedData, null, 2));
                 }
             };
             request.onerror = () => {
@@ -1133,18 +1156,32 @@ async function exportBackupJSON() {
 }
 
 async function restoreBackupJSON(jsonDataString) {
-    let backupData;
+    let parsed;
     try {
-        backupData = JSON.parse(jsonDataString);
+        parsed = JSON.parse(jsonDataString);
     } catch (e) {
         throw new Error('Invalid JSON format');
+    }
+
+    let backupData;
+    let metadata = null;
+    if (parsed && parsed.metadata && parsed.data) {
+        backupData = parsed.data;
+        metadata = parsed.metadata;
+    } else {
+        // Legacy backup format
+        backupData = parsed;
+    }
+
+    if (!backupData) {
+        throw new Error('Backup contains no data.');
     }
 
     const db = await initDB();
     const stores = Array.from(db.objectStoreNames);
     
-    // Ensure we can clear/restore all object stores present in backup that exist in DB
-    const storesToRestore = stores.filter(s => Array.isArray(backupData[s]));
+    // Ensure we can clear/restore all object stores present in backup that exist in DB (excluding rollback_backups)
+    const storesToRestore = stores.filter(s => s !== 'rollback_backups' && Array.isArray(backupData[s]));
     if (storesToRestore.length === 0) {
         throw new Error('Backup contains no valid database stores.');
     }
@@ -1186,4 +1223,49 @@ async function restoreBackupJSON(jsonDataString) {
 // Seeding default products is disabled for clean slate
 async function seedDefaultProducts() {
     // Disabled as requested. Starts with a clean inventory.
+}
+
+// Rollback backup operations in IndexedDB
+async function saveRollbackBackup(jsonStr) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(['rollback_backups'], 'readwrite');
+        const store = transaction.objectStore('rollback_backups');
+        const request = store.put({ id: 'latest_rollback', content: jsonStr, createdAt: new Date().toISOString() });
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => reject(transaction.error || request.error);
+    });
+}
+
+async function getRollbackBackup() {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(['rollback_backups'], 'readonly');
+        const store = transaction.objectStore('rollback_backups');
+        const request = store.get('latest_rollback');
+        request.onsuccess = () => resolve(request.result ? request.result.content : null);
+        request.onerror = () => reject(transaction.error || request.error);
+    });
+}
+
+async function clearRollbackBackup() {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(['rollback_backups'], 'readwrite');
+        const store = transaction.objectStore('rollback_backups');
+        const request = store.delete('latest_rollback');
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => reject(transaction.error || request.error);
+    });
+}
+
+async function deleteAuditLog(id) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(['audit_logs'], 'readwrite');
+        const store = transaction.objectStore('audit_logs');
+        const request = store.delete(id);
+        request.onsuccess = () => resolve(true);
+        request.onerror = () => reject(transaction.error || request.error);
+    });
 }
